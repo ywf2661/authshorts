@@ -22,7 +22,12 @@ def refresh_access_token(settings: Settings) -> str:
     )
     if not response.ok:
         # invalid_grant / invalid_client 등 구글이 준 실제 사유를 로그에 남긴다
-        raise RuntimeError(f"토큰 갱신 실패 {response.status_code}: {response.text}")
+        token = settings.youtube_refresh_token
+        # 토큰 값 자체는 찍지 않고 형태만 남긴다 (정상: '1//'로 시작, 100자 안팎)
+        raise RuntimeError(
+            f"토큰 갱신 실패 {response.status_code}: {response.text} "
+            f"/ refresh_token 길이={len(token)}, '1//'로 시작={token.startswith('1//')}"
+        )
     return response.json()["access_token"]
 
 

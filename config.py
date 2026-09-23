@@ -15,6 +15,11 @@ class Settings:
     hf_api_key: str = ""
 
 
+def _clean(value: str) -> str:
+    """Secrets 붙여넣기 때 섞이는 공백·줄바꿈·따옴표 제거."""
+    return value.strip().strip("\"'").strip()
+
+
 def load_settings() -> Settings:
     load_dotenv()
     required = [
@@ -31,9 +36,9 @@ def load_settings() -> Settings:
 
     return Settings(
         anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
-        google_client_id=os.environ["GOOGLE_CLIENT_ID"],
-        google_client_secret=os.environ["GOOGLE_CLIENT_SECRET"],
-        youtube_refresh_token=os.environ["YOUTUBE_REFRESH_TOKEN"],
+        google_client_id=_clean(os.environ["GOOGLE_CLIENT_ID"]),
+        google_client_secret=_clean(os.environ["GOOGLE_CLIENT_SECRET"]),
+        youtube_refresh_token=_clean(os.environ["YOUTUBE_REFRESH_TOKEN"]),
         youtube_channel_id=os.environ["YOUTUBE_CHANNEL_ID"],
         telegram_channel_url=os.environ["TELEGRAM_CHANNEL_URL"],
         hf_api_key=os.getenv("HF_API_KEY", ""),
