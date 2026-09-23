@@ -1,0 +1,38 @@
+name: ai-shortsbot
+
+on:
+  schedule:
+    - cron: "0 11 * * *"  # 매일 UTC 11:00 (KST 20:00) — blogbot(KST 09:00)과 겹치지 않게
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Korean fonts for ffmpeg captions
+        run: sudo apt-get update && sudo apt-get install -y fonts-nanum
+      - run: pip install -r requirements.txt
+      - env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
+          TELEGRAM_CHANNEL_URL: ${{ secrets.TELEGRAM_CHANNEL_URL }}
+          HF_API_KEY: ${{ secrets.HF_API_KEY }}
+        run: python main.py
+      - name: shorts_posted_ids.json 커밋 (중복게시 이력 유지)
+        run: |
+          git config user.name "ai-shortsbot"
+          git config user.email "ai-shortsbot@users.noreply.github.com"
+          git add shorts_posted_ids.json
+          git diff --staged --quiet || git commit -m "chore: update shorts_posted_ids"
+          git pull --rebase origin main
+          git push
