@@ -16,7 +16,9 @@ from description_builder import build_description
 from main import AD_PREFIX, parse_product_line
 from script_writer import write_clip_script
 from tts import synthesize
-from video_assembler import assemble_video, extract_frames, probe_duration
+from video_assembler import (
+    BGM_DIR, assemble_video, bgm_credit, extract_frames, pick_bgm, probe_duration,
+)
 from youtube_api import refresh_access_token, upload_video
 
 WORK_DIR = "work"
@@ -64,13 +66,16 @@ def _download(settings: Settings, file_id: str, dest: str) -> str:
     return dest
 
 
-def _preview_caption(title: str, product: dict, summary: str) -> str:
-    caption = f"제목: {title}\n상품: {product['productName']} | {product['productUrl']}\n요약: {summary}"
+def _preview_caption(title: str, product: dict, summary: str, bgm_name: str = "") -> str:
+    caption = (
+        f"제목: {title}\n상품: {product['productName']} | {product['productUrl']}\n"
+        f"음악: {bgm_name}\n요약: {summary}"
+    )
     return caption[:1024]  # 텔레그램 캡션 최대 길이
 
 
-def _parse_preview_caption(caption: str) -> tuple[str, dict, str]:
-    """미리보기 캡션에서 (제목, 상품, 요약)을 되살린다 — 상태를 따로 저장하지 않기 위해."""
+def _parse_preview_caption(caption: str) -> tuple[str, dict, str, str]:
+    """미리보기 캡션에서 (제목, 상품, 요약, 음악 이름)을 되살린다 — 상태를 따로 저장하지 않기 위해."""
     fields = {}
     for line in caption.split("\n"):
         key, sep, value = line.partition(": ")
@@ -79,7 +84,7 @@ def _parse_preview_caption(caption: str) -> tuple[str, dict, str]:
     product = parse_product_line(fields.get("상품", ""))
     if not fields.get("제목") or product is None:
         raise ValueError("미리보기 캡션을 해석할 수 없어요. 영상을 다시 보내주세요.")
-    return fields["제목"], product, fields.get("요약", "")
+    return fields["제목"], product, fields.get("요약", ""), fields.get("음악", "")
 
 
 def _make_preview(settings: Settings, chat_id, video: dict, product: dict) -> None:
@@ -94,13 +99,17 @@ def _make_preview(settings: Settings, chat_id, video: dict, product: dict) -> No
     script = write_clip_script(settings, product, frames, duration)
 
     audio_paths = synthesize(script["sentences"], work_dir)
+    bgm = pick_bgm()
     final = assemble_video(
         script["sentences"],
         audio_paths,
         [(source, start) for start in script["starts"]],
         os.path.join(work_dir, "final.mp4"),
         title_lines=script.get("cover_lines"),
+        emphasis=script.get("emphasis", []),
+        bgm_path=bgm[0] if bgm else None,
     )
+    bgm_name = os.path.splitext(os.path.basename(bgm[0]))[0] if bgm else ""
 
     summary = " ".join(script["sentences"][:2])
     keyboard = {"inline_keyboard": [[
@@ -112,19 +121,22 @@ def _make_preview(settings: Settings, chat_id, video: dict, product: dict) -> No
             settings, "sendVideo",
             files={"video": f},
             chat_id=chat_id,
-            caption=_preview_caption(script["title"], product, summary),
+            caption=_preview_caption(script["title"], product, summary, bgm_name),
             reply_markup=json.dumps(keyboard),
             supports_streaming="true",
         )
 
 
 def _upload_preview(settings: Settings, chat_id, message: dict) -> None:
-    title, product, summary = _parse_preview_caption(message.get("caption", ""))
+    title, product, summary, bgm_name = _parse_preview_caption(message.get("caption", ""))
     path = _download(
         settings, message["video"]["file_id"],
         os.path.join(WORK_DIR, f"upload-{message['message_id']}", "final.mp4"),
     )
     description = build_description(summary, product, settings.telegram_channel_url, [])
+    credit = bgm_credit(os.path.join(BGM_DIR, bgm_name + ".mp3")) if bgm_name else ""
+    if credit:
+        description += "\n\n" + credit  # CC BY 음악 저작자 표시
     access_token = refresh_access_token(settings)
     video_url = upload_video(settings, access_token, path, AD_PREFIX + title, description)
     _send(settings, chat_id, f"✅ 업로드 완료: {video_url}")

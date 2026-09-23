@@ -7,7 +7,7 @@ from description_builder import build_description
 from image_generator import download_image, generate_image, save_generated_image
 from script_writer import write_script
 from tts import synthesize
-from video_assembler import assemble_video
+from video_assembler import assemble_video, pick_bgm
 from youtube_api import refresh_access_token, upload_video
 
 PRODUCTS_PATH = os.path.join(os.path.dirname(__file__), "products.txt")
@@ -92,15 +92,20 @@ def run() -> str | None:
 
     audio_paths = synthesize(script["sentences"], work_dir)
 
+    bgm = pick_bgm()
     video_path = assemble_video(
         script["sentences"], audio_paths, image_paths, os.path.join(work_dir, "final.mp4"),
         title_lines=script.get("cover_lines"),
+        emphasis=script.get("emphasis", []),
+        bgm_path=bgm[0] if bgm else None,
     )
 
     summary = " ".join(script["sentences"][:2])
     description = build_description(
         summary, product, settings.telegram_channel_url, script.get("keywords", [])
     )
+    if bgm and bgm[1]:
+        description += "\n\n" + bgm[1]  # CC BY 음악 저작자 표시
 
     access_token = refresh_access_token(settings)
     video_url = upload_video(

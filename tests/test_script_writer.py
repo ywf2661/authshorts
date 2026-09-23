@@ -151,3 +151,14 @@ def test_write_script_returns_cover_lines_or_none_when_malformed(mock_post):
         mock_post, '"title": "t", "cover_lines": "한 줄", "sentences": ["s"], "image_prompts": ["p"]}'
     )
     assert write_script(_settings(), _product())["cover_lines"] is None
+
+
+@patch("script_writer.requests.post")
+def test_write_script_keeps_only_valid_emphasis_indices(mock_post):
+    _mock_post_with_text(
+        mock_post,
+        '"title": "t", "emphasis": [0, 2, 9, "x"], "sentences": ["a", "b", "c"], '
+        '"image_prompts": ["p", "q", "r"]}',
+    )
+
+    assert write_script(_settings(), _product())["emphasis"] == [2]  # 첫 문장·범위 밖 제외

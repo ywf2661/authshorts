@@ -50,6 +50,7 @@ PATCHED = [
     "save_posted_ids", "upload_video", "refresh_access_token", "build_description",
     "assemble_video", "synthesize", "save_generated_image", "generate_image",
     "download_image", "write_script", "load_posted_ids", "_load_products", "load_settings",
+    "pick_bgm",
 ]
 
 
@@ -77,6 +78,7 @@ def _setup(m, sentences):
     m["build_description"].return_value = "설명"
     m["refresh_access_token"].return_value = "token"
     m["upload_video"].return_value = "https://youtu.be/abc123"
+    m["pick_bgm"].return_value = ("bgm/song.mp3", "🎵 Music: song")
     return settings
 
 
@@ -106,6 +108,8 @@ def test_run_uses_product_photo_first_then_ai_images(*args):
         "문장1 문장2", _products()[0], "https://t.me/x", ["케이스"]
     )
     assert m["upload_video"].call_args[0][3] == "[광고] 제목"
+    assert m["upload_video"].call_args[0][4] == "설명\n\n🎵 Music: song"
+    assert m["assemble_video"].call_args.kwargs["bgm_path"] == "bgm/song.mp3"
     m["save_posted_ids"].assert_called_once()
     assert main.hash_link("http://a") in m["save_posted_ids"].call_args[0][1]
 

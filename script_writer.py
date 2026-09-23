@@ -26,9 +26,10 @@ image_prompts에 넣어라 (사진이 아닌 삽화/일러스트 스타일로, �
 해시태그로 쓸 상품 카테고리 키워드를 1~2개 뽑아라 (예: "휴대폰케이스", "노트북").
 영상 첫 화면 가운데에 크게 박을 후킹 제목을 2~3줄(줄당 7자 이내)로 cover_lines에 넣어라
 (예: ["N통째 쓴", "쿠팡필수템", "TOP 1"] / ["자취생", "필수템"]).
+가장 임팩트 있는 문장 1~2개(첫 문장 제외)를 골라 그 인덱스(0부터)를 emphasis에 넣어라 — 확대·집중선 효과가 들어간다.
 
 다음 JSON 형식으로만 응답하라. 다른 텍스트는 포함하지 마라:
-{{"title": "쇼츠 제목", "cover_lines": ["줄1", "줄2"], "sentences": ["문장1", "문장2"], "keywords": ["키워드1"], "image_prompts": ["illustration prompt 1", "illustration prompt 2"]}}
+{{"title": "쇼츠 제목", "cover_lines": ["줄1", "줄2"], "emphasis": [2], "sentences": ["문장1", "문장2"], "keywords": ["키워드1"], "image_prompts": ["illustration prompt 1", "illustration prompt 2"]}}
 """
 
 
@@ -58,6 +59,14 @@ def _cover_lines(result: dict) -> list[str] | None:
     if isinstance(lines, list) and 1 <= len(lines) <= 3 and all(isinstance(x, str) and x.strip() for x in lines):
         return [x.strip() for x in lines]
     return None
+
+
+def _emphasis(result: dict, sentence_count: int) -> list[int]:
+    """강조 문장 인덱스. 첫 문장(제목 장면)과 범위 밖 값은 버린다."""
+    raw = result.get("emphasis")
+    if not isinstance(raw, list):
+        return []
+    return sorted({i for i in raw if isinstance(i, int) and 0 < i < sentence_count})[:2]
 
 
 def _ask_claude(settings: Settings, content) -> dict:
@@ -104,6 +113,7 @@ def write_script(settings: Settings, product: dict) -> dict:
     return {
         "title": result["title"],
         "cover_lines": _cover_lines(result),
+        "emphasis": _emphasis(result, len(result["sentences"])),
         "sentences": result["sentences"],
         "keywords": result.get("keywords", []),
         "image_prompts": result["image_prompts"],
@@ -121,9 +131,10 @@ CLIP_PROMPT_TEMPLATE = """위 이미지들은 쿠팡 상품 "{product_name}"의 
 해시태그로 쓸 상품 카테고리 키워드를 1~2개 뽑아라.
 영상 첫 화면 가운데에 크게 박을 후킹 제목을 2~3줄(줄당 7자 이내)로 cover_lines에 넣어라
 (예: ["N통째 쓴", "쿠팡필수템", "TOP 1"] / ["자취생", "필수템"]).
+가장 임팩트 있는 문장 1~2개(첫 문장 제외)를 골라 그 인덱스(0부터)를 emphasis에 넣어라 — 확대·집중선 효과가 들어간다.
 
 다음 JSON 형식으로만 응답하라:
-{{"title": "쇼츠 제목", "cover_lines": ["줄1", "줄2"], "segments": [{{"start": 0, "sentence": "문장1"}}], "keywords": ["키워드1"]}}
+{{"title": "쇼츠 제목", "cover_lines": ["줄1", "줄2"], "emphasis": [2], "segments": [{{"start": 0, "sentence": "문장1"}}], "keywords": ["키워드1"]}}
 """
 
 
@@ -160,6 +171,7 @@ def write_clip_script(
     return {
         "title": result["title"],
         "cover_lines": _cover_lines(result),
+        "emphasis": _emphasis(result, len(sentences)),
         "sentences": sentences,
         "starts": starts,
         "keywords": result.get("keywords", []),
