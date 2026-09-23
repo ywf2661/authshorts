@@ -90,7 +90,9 @@ def run() -> str | None:
             continue
         image_paths.append(save_generated_image(work_dir, f"image_{i}.png", image_bytes))
 
-    audio_paths = synthesize(script["sentences"], work_dir)
+    audio_paths = synthesize(
+        script["sentences"], work_dir, settings.azure_speech_key, settings.azure_speech_region
+    )
 
     bgm = pick_bgm()
     video_path = assemble_video(

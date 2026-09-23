@@ -16,6 +16,9 @@ class Settings:
     # 사용 영상 봇(usage_bot.py)에서만 사용
     telegram_bot_token: str = ""
     telegram_owner_chat_id: str = ""
+    # 선택 — 없으면 edge-tts(같은 현수 목소리)로 대체
+    azure_speech_key: str = ""
+    azure_speech_region: str = ""
 
 
 def _clean(value: str) -> str:
@@ -47,4 +50,6 @@ def load_settings() -> Settings:
         hf_api_key=os.getenv("HF_API_KEY", ""),
         telegram_bot_token=_clean(os.getenv("TELEGRAM_BOT_TOKEN", "")),
         telegram_owner_chat_id=_clean(os.getenv("TELEGRAM_OWNER_CHAT_ID", "")),
+        azure_speech_key=_clean(os.getenv("AZURE_SPEECH_KEY", "")),
+        azure_speech_region=_clean(os.getenv("AZURE_SPEECH_REGION", "")),
     )

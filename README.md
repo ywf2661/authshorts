@@ -42,6 +42,7 @@ GitHub 웹/앱에서 파일 열고 ✏️ 편집 → 한 줄 붙여넣기 → Co
 | HF_API_KEY | 선택 — 없거나 실패하면 무료 Pollinations 이미지로 대체 |
 | TELEGRAM_BOT_TOKEN | 사용 영상 봇 전용 — @BotFather에서 발급 |
 | TELEGRAM_OWNER_CHAT_ID | 사용 영상 봇 전용 — 영상을 보낼 본인 chat id |
+| AZURE_SPEECH_KEY / AZURE_SPEECH_REGION | 선택 — Azure Speech(F0 무료) 키·지역. 없거나 실패하면 edge-tts로 같은 현수 목소리 |
 
 ## 사전 준비
 

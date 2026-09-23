@@ -106,7 +106,9 @@ def _make_preview(settings: Settings, chat_id, video: dict, product: dict) -> No
             frames.append((t, f.read()))
     script = write_clip_script(settings, product, frames, duration)
 
-    audio_paths = synthesize(script["sentences"], work_dir)
+    audio_paths = synthesize(
+        script["sentences"], work_dir, settings.azure_speech_key, settings.azure_speech_region
+    )
     bgm = pick_bgm()
     final = assemble_video(
         script["sentences"],
