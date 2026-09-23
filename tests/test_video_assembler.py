@@ -133,3 +133,17 @@ def test_bundled_assets_exist():
     for path in [CAPTION_FONT, TITLE_FONT, *FOCUS_LINES]:
         assert os.path.exists(path), path
     assert os.path.isdir(video_assembler.BGM_DIR)
+
+
+def test_every_title_line_gets_white_outer_border(mock_run, tmp_path):
+    assemble_video(
+        ["문장1"], ["a1.mp3"], ["i1.png"], str(tmp_path / "out.mp4"),
+        title_lines=["N통째 쓴", "쿠팡필수템", "TOP 1"],
+    )
+
+    graph = _graph(_ffmpeg_cmds(mock_run)[0])
+    for j in range(3):
+        title_file = os.path.join(str(tmp_path), f"title_{j}.txt")
+        # 줄마다: 흰 바깥 테두리 1번 + 검은 테두리 글씨 1번
+        assert graph.count(f"textfile='{title_file}'") == 2
+    assert graph.count("bordercolor=white") == 3

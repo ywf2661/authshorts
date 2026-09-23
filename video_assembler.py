@@ -69,18 +69,20 @@ def _caption_filters(text: str, out_dir: str, index: int, duration: float) -> li
 
 
 def _title_filters(lines: list[str], out_dir: str) -> list[str]:
-    """첫 장면 화면 가운데의 큰 제목 — 노란 글씨(마지막 줄은 흰 글씨), 검은 테두리 + 흰 바깥 테두리."""
+    """첫 장면 화면 가운데의 큰 제목 — 노란 글씨(마지막 줄은 흰 글씨), 모든 줄에 검은 테두리 + 흰 바깥 테두리."""
     size = min(170, 960 // max(len(line) for line in lines))  # 가장 긴 줄이 화면 폭에 맞도록
     line_h = int(size * 1.15)
     top = f"h*0.5-{len(lines) * line_h // 2}"
+    # 테두리 두께도 글자 크기에 비례 (170px 기준 흰 24px / 검은 11px)
+    outer, inner = max(8, size * 24 // 170), max(4, size * 11 // 170)
     filters = []
     for j, line in enumerate(lines):
         path = _write(os.path.join(out_dir, f"title_{j}.txt"), line)
         y = f"{top}+{j * line_h}"
         last = j == len(lines) - 1 and len(lines) > 1
-        if not last:
-            filters.append(_drawtext(path, TITLE_FONT, size, "white", 24, "white", y))
-        filters.append(_drawtext(path, TITLE_FONT, size, "white" if last else TITLE_YELLOW, 11, "black", y))
+        # 흰 바깥 테두리를 먼저 크게 그리고, 그 위에 검은 테두리 + 글씨를 덮는다.
+        filters.append(_drawtext(path, TITLE_FONT, size, "white", outer, "white", y))
+        filters.append(_drawtext(path, TITLE_FONT, size, "white" if last else TITLE_YELLOW, inner, "black", y))
     return filters
 
 
