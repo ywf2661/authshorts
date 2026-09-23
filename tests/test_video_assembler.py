@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from video_assembler import FONT_PATH, assemble_video
+from video_assembler import CAPTION_FONT, TITLE_FONT, assemble_video
 
 
 @patch("video_assembler.subprocess.run")
@@ -47,13 +47,14 @@ def test_assemble_video_writes_caption_to_textfile_with_apostrophe(mock_run, tmp
 
     assemble_video([sentence], ["a1.mp3"], ["i1.png"], out_path)
 
-    caption_path = tmp_path / "caption_1.txt"
-    assert caption_path.read_text(encoding="utf-8") == "OpenAI's new\nmodel"  # 14자 줄바꿈
+    # 12자 줄바꿈 — 줄마다 따로 그려서 각 줄을 가운데 정렬
+    assert (tmp_path / "caption_1_0.txt").read_text(encoding="utf-8") == "OpenAI's new"
+    assert (tmp_path / "caption_1_1.txt").read_text(encoding="utf-8") == "model"
 
     first_call_cmd = mock_run.call_args_list[0].args[0]
     vf_arg = first_call_cmd[first_call_cmd.index("-vf") + 1]
     assert "textfile=" in vf_arg
-    assert f"fontfile='{FONT_PATH}'" in vf_arg
+    assert vf_arg.count(f"fontfile='{CAPTION_FONT}'") == 2
     assert "text='" not in vf_arg
 
 
@@ -78,3 +79,23 @@ def test_assemble_video_cuts_clip_segment_and_drops_original_audio(mock_run, tmp
     assert cmd[cmd.index("-ss") + 3] == "src.mp4"
     assert "tpad=stop_mode=clone" in cmd[cmd.index("-vf") + 1]
     assert cmd[cmd.index("-map") + 1] == "0:v"
+
+
+@patch("video_assembler.subprocess.run")
+def test_assemble_video_draws_big_title_only_on_first_segment(mock_run, tmp_path):
+    assemble_video(
+        ["문장1", "문장2"], ["a1.mp3", "a2.mp3"], ["i1.png", "i2.png"],
+        str(tmp_path / "out.mp4"), title_lines=["N통째 쓴", "쿠팡필수템"],
+    )
+
+    first_vf = mock_run.call_args_list[0].args[0][mock_run.call_args_list[0].args[0].index("-vf") + 1]
+    second_vf = mock_run.call_args_list[1].args[0][mock_run.call_args_list[1].args[0].index("-vf") + 1]
+    assert TITLE_FONT in first_vf
+    assert TITLE_FONT not in second_vf
+    assert (tmp_path / "title_1.txt").read_text(encoding="utf-8") == "쿠팡필수템"
+
+
+def test_font_files_exist():
+    import os
+
+    assert os.path.exists(CAPTION_FONT) and os.path.exists(TITLE_FONT)

@@ -137,3 +137,17 @@ def test_write_clip_script_rejects_start_outside_video(mock_post):
 
     with pytest.raises(ValueError, match="범위"):
         write_clip_script(_settings(), _product(), _clip_frames(), 5.0)
+
+
+@patch("script_writer.requests.post")
+def test_write_script_returns_cover_lines_or_none_when_malformed(mock_post):
+    _mock_post_with_text(
+        mock_post,
+        '"title": "t", "cover_lines": ["N통째 쓴", "쿠팡필수템"], "sentences": ["s"], "image_prompts": ["p"]}',
+    )
+    assert write_script(_settings(), _product())["cover_lines"] == ["N통째 쓴", "쿠팡필수템"]
+
+    _mock_post_with_text(
+        mock_post, '"title": "t", "cover_lines": "한 줄", "sentences": ["s"], "image_prompts": ["p"]}'
+    )
+    assert write_script(_settings(), _product())["cover_lines"] is None

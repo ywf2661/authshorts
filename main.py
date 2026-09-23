@@ -93,7 +93,8 @@ def run() -> str | None:
     audio_paths = synthesize(script["sentences"], work_dir)
 
     video_path = assemble_video(
-        script["sentences"], audio_paths, image_paths, os.path.join(work_dir, "final.mp4")
+        script["sentences"], audio_paths, image_paths, os.path.join(work_dir, "final.mp4"),
+        title_lines=script.get("cover_lines"),
     )
 
     summary = " ".join(script["sentences"][:2])

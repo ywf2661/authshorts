@@ -2,12 +2,16 @@ import os
 import subprocess
 import textwrap
 
-# ffmpeg's fontconfig fallback (DejaVu Sans on ubuntu-latest) has no Hangul
-# glyphs, so Korean captions would silently render as blank boxes. Pin a
-# Hangul-capable font instead (installed via .github/workflows/shortsbot.yml).
-FONT_PATH = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
-# 56px 한글 기준 한 줄 14자 ≈ 800px — 화면 폭과 쇼츠 우측 버튼 영역 안쪽에 들어온다.
-CAPTION_CHARS_PER_LINE = 14
+# ffmpeg 기본 폰트에는 한글이 없어서 자막이 빈 네모로 나온다 — 저장소의 한글 폰트(OFL)를 지정한다.
+FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+CAPTION_FONT = os.path.join(FONT_DIR, "NanumGothic-ExtraBold.ttf")
+TITLE_FONT = os.path.join(FONT_DIR, "BlackHanSans-Regular.ttf")
+# 78px 한글 기준 한 줄 12자 ≈ 940px — 화면 폭 안쪽에 들어온다.
+CAPTION_CHARS_PER_LINE = 12
+CAPTION_FONT_SIZE = 78
+# 쇼츠 상단 재생·음량 버튼(~8%) 바로 아래, 레퍼런스처럼 화면 위쪽 20% 높이.
+CAPTION_CENTER_Y = 0.2
+TITLE_YELLOW = "0xFFE400"
 
 
 def _run_ffmpeg(cmd: list[str]) -> None:
@@ -22,18 +26,61 @@ def _run_ffmpeg(cmd: list[str]) -> None:
 Visual = str | None | tuple[str, float]
 
 
-def _build_segment(visual: Visual, audio_path: str, text: str, out_path: str, index: int) -> None:
-    out_dir = os.path.dirname(out_path) or "."
-    caption_path = os.path.join(out_dir, f"caption_{index}.txt")
-    with open(caption_path, "w", encoding="utf-8") as f:
-        f.write(textwrap.fill(text, CAPTION_CHARS_PER_LINE))
-
-    drawtext = (
-        f"drawtext=textfile='{caption_path}':fontfile='{FONT_PATH}':"
-        "fontcolor=white:fontsize=56:line_spacing=14:"
-        # 쇼츠 하단 ~25%는 제목·버튼 UI에 가려지므로 화면 62% 높이에 중앙 정렬.
-        "box=1:boxcolor=black@0.6:boxborderw=20:x=(w-text_w)/2:y=h*0.62-text_h/2"
+def _drawtext(text_path: str, font: str, size: int, color: str, border: int,
+              border_color: str, y: str) -> str:
+    return (
+        f"drawtext=textfile='{text_path}':fontfile='{font}':fontsize={size}:"
+        f"fontcolor={color}:borderw={border}:bordercolor={border_color}:"
+        f"x=(w-text_w)/2:y={y}"
     )
+
+
+def _write(path: str, text: str) -> str:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return path
+
+
+def _caption_filters(text: str, out_dir: str, index: int) -> list[str]:
+    """흰 글씨 + 검은 테두리 자막. 줄마다 따로 그려야 각 줄이 가운데 정렬된다."""
+    lines = textwrap.wrap(text, CAPTION_CHARS_PER_LINE)
+    line_h = int(CAPTION_FONT_SIZE * 1.3)
+    top = f"h*{CAPTION_CENTER_Y}-{len(lines) * line_h // 2}"
+    return [
+        _drawtext(
+            _write(os.path.join(out_dir, f"caption_{index}_{j}.txt"), line),
+            CAPTION_FONT, CAPTION_FONT_SIZE, "white", 7, "black", f"{top}+{j * line_h}",
+        )
+        for j, line in enumerate(lines)
+    ]
+
+
+def _title_filters(lines: list[str], out_dir: str) -> list[str]:
+    """첫 장면 화면 가운데의 큰 제목 — 노란 글씨(마지막 줄은 흰 글씨), 검은 테두리 + 흰 바깥 테두리."""
+    size = min(170, 960 // max(len(line) for line in lines))  # 가장 긴 줄이 화면 폭에 맞도록
+    line_h = int(size * 1.15)
+    top = f"h*0.5-{len(lines) * line_h // 2}"
+    filters = []
+    for j, line in enumerate(lines):
+        path = _write(os.path.join(out_dir, f"title_{j}.txt"), line)
+        y = f"{top}+{j * line_h}"
+        last = j == len(lines) - 1 and len(lines) > 1
+        if not last:
+            filters.append(_drawtext(path, TITLE_FONT, size, "white", 24, "white", y))
+        filters.append(_drawtext(path, TITLE_FONT, size, "white" if last else TITLE_YELLOW, 11, "black", y))
+    return filters
+
+
+def _build_segment(
+    visual: Visual, audio_path: str, text: str, out_path: str, index: int,
+    title_lines: list[str] | None = None,
+) -> None:
+    out_dir = os.path.dirname(out_path) or "."
+    overlays = _caption_filters(text, out_dir, index)
+    if title_lines:
+        overlays += _title_filters(title_lines, out_dir)
+    drawtext = ",".join(overlays)
+
     freeze = ""
     if visual is None:
         video_input = ["-f", "lavfi", "-i", "color=c=0x1a1a2e:s=1080x1920"]
@@ -68,8 +115,12 @@ def assemble_video(
     audio_paths: list[str],
     image_paths: list[Visual],
     out_path: str,
+    title_lines: list[str] | None = None,
 ) -> str:
-    """문장별 세그먼트(이미지/단색배경/영상 구간 + 오디오 + 자막)를 만들어 이어 붙인다."""
+    """문장별 세그먼트(이미지/단색배경/영상 구간 + 오디오 + 자막)를 만들어 이어 붙인다.
+
+    title_lines가 있으면 첫 장면 가운데에 큰 제목으로 박는다.
+    """
     if not (len(sentences) == len(audio_paths) == len(image_paths)):
         raise ValueError(
             "문장/오디오/이미지 개수가 일치하지 않음: "
@@ -84,7 +135,8 @@ def assemble_video(
         zip(sentences, audio_paths, image_paths), start=1
     ):
         segment_path = os.path.join(out_dir, f"segment_{i}.mp4")
-        _build_segment(visual, audio_path, sentence, segment_path, i)
+        # 큰 제목은 첫 장면(첫 문장)에만 띄운다.
+        _build_segment(visual, audio_path, sentence, segment_path, i, title_lines if i == 1 else None)
         segment_paths.append(segment_path)
 
     concat_list_path = os.path.join(out_dir, "concat_list.txt")

@@ -99,6 +99,7 @@ def _make_preview(settings: Settings, chat_id, video: dict, product: dict) -> No
         audio_paths,
         [(source, start) for start in script["starts"]],
         os.path.join(work_dir, "final.mp4"),
+        title_lines=script.get("cover_lines"),
     )
 
     summary = " ".join(script["sentences"][:2])
