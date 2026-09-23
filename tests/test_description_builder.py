@@ -11,4 +11,13 @@ def test_build_description_puts_disclosure_first_then_product_link():
     assert "투명 케이스" in lines[2]
     assert lines[3] == "http://x"
     assert "https://t.me/channel" in result
-    assert lines[-1] == "#쿠팡 #추천템 #쇼츠 #휴대폰케이스"
+    assert lines[-1] == "#쇼츠 #쿠팡 #쿠팡추천템 #휴대폰케이스"
+
+
+def test_hashtags_strip_symbols_dedupe_and_cap_at_ten():
+    from description_builder import hashtags
+
+    tags = hashtags(["#자취템", "살림 꿀템", "쿠팡", ""] + [f"태그{i}" for i in range(20)])
+
+    assert tags[:5] == ["쇼츠", "쿠팡", "쿠팡추천템", "자취템", "살림꿀템"]
+    assert len(tags) == 10

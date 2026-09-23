@@ -23,15 +23,18 @@ def _sent_texts(tg):
 
 def test_preview_caption_round_trips():
     product = {"productName": "투명 케이스", "productUrl": "https://link.coupang.com/a/x"}
-    caption = usage_bot._preview_caption("잇템 제목", product, "요약: 문장", "sneaky-snitch")
+    caption = usage_bot._preview_caption(
+        "잇템 제목", product, "요약: 문장", "sneaky-snitch", ["쇼츠", "자취템"]
+    )
 
-    title, parsed, summary, bgm_name = usage_bot._parse_preview_caption(caption)
+    parsed = usage_bot._parse_preview_caption(caption)
 
-    assert title == "잇템 제목"
-    assert parsed["productName"] == "투명 케이스"
-    assert parsed["productUrl"] == "https://link.coupang.com/a/x"
-    assert summary == "요약: 문장"
-    assert bgm_name == "sneaky-snitch"
+    assert parsed["title"] == "잇템 제목"
+    assert parsed["product"]["productName"] == "투명 케이스"
+    assert parsed["product"]["productUrl"] == "https://link.coupang.com/a/x"
+    assert parsed["summary"] == "요약: 문장"
+    assert parsed["bgm_name"] == "sneaky-snitch"
+    assert parsed["tags"] == ["쇼츠", "자취템"]
 
 
 def test_parse_preview_caption_rejects_garbage():
@@ -80,7 +83,8 @@ def test_video_sent_as_file_is_accepted(tg, make_preview):
 
 def _callback(data, from_id=OWNER):
     caption = usage_bot._preview_caption(
-        "제목", {"productName": "케이스", "productUrl": "http://x"}, "요약", "sneaky-snitch"
+        "제목", {"productName": "케이스", "productUrl": "http://x"}, "요약", "sneaky-snitch",
+        ["쇼츠", "자취템"],
     )
     return {
         "id": "q1", "data": data, "from": {"id": int(from_id)},
@@ -101,6 +105,8 @@ def test_upload_button_uploads_with_ad_title_once(tg, download, refresh, upload)
     assert upload.call_args.args[3] == "[광고] 제목"
     assert "http://x" in upload.call_args.args[4]
     assert "Sneaky Snitch" in upload.call_args.args[4]  # 음악 저작자 표시
+    assert "#자취템" in upload.call_args.args[4]
+    assert upload.call_args.kwargs["tags"] == ["쇼츠", "자취템"]
     assert "https://youtu.be/v" in _sent_texts(tg)[-1]
 
 

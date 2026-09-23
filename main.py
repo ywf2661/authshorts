@@ -3,7 +3,7 @@ import os
 
 from config import load_settings
 from dedup import hash_link, load_posted_ids, save_posted_ids
-from description_builder import build_description
+from description_builder import build_description, hashtags
 from image_generator import download_image, generate_image, save_generated_image
 from script_writer import write_script
 from tts import synthesize
@@ -109,7 +109,8 @@ def run() -> str | None:
 
     access_token = refresh_access_token(settings)
     video_url = upload_video(
-        settings, access_token, video_path, AD_PREFIX + script["title"], description
+        settings, access_token, video_path, AD_PREFIX + script["title"], description,
+        tags=hashtags(script.get("keywords", [])),
     )
 
     posted_ids.add(link_hash)

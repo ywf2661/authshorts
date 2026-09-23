@@ -110,6 +110,7 @@ def test_run_uses_product_photo_first_then_ai_images(*args):
     assert m["upload_video"].call_args[0][3] == "[광고] 제목"
     assert m["upload_video"].call_args[0][4] == "설명\n\n🎵 Music: song"
     assert m["assemble_video"].call_args.kwargs["bgm_path"] == "bgm/song.mp3"
+    assert m["upload_video"].call_args.kwargs["tags"] == ["쇼츠", "쿠팡", "쿠팡추천템", "케이스"]
     m["save_posted_ids"].assert_called_once()
     assert main.hash_link("http://a") in m["save_posted_ids"].call_args[0][1]
 

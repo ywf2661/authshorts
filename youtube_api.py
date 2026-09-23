@@ -32,7 +32,8 @@ def refresh_access_token(settings: Settings) -> str:
 
 
 def upload_video(
-    settings: Settings, access_token: str, video_path: str, title: str, description: str
+    settings: Settings, access_token: str, video_path: str, title: str, description: str,
+    tags: list[str] = (),
 ) -> str:
     """영상을 채널에 공개(public)로 업로드하고 시청 URL을 반환한다."""
     title = title[:100]  # YouTube snippet.title 최대 100자
@@ -46,6 +47,8 @@ def upload_video(
                 "title": title,
                 "description": description,
                 "channelId": settings.youtube_channel_id,
+                # 검색용 숨은 태그 (설명란 해시태그와 같은 목록)
+                "tags": list(tags),
             },
             # AI 생성 이미지·음성 사용 → YouTube 합성 콘텐츠 표시 정책
             "status": {"privacyStatus": "public", "containsSyntheticMedia": True},
