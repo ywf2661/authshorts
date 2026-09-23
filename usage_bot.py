@@ -210,8 +210,15 @@ if __name__ == "__main__":
     if "--peek" in sys.argv:
         # 워크플로에서 ffmpeg 설치 전에 새 메시지가 있는지만 확인 (확인 처리는 하지 않음).
         settings = load_settings()
-        # 토큰을 아직 안 넣었으면 15분마다 실패 메일이 가지 않게 조용히 건너뛴다.
-        has_updates = bool(settings.telegram_bot_token) and bool(_fetch_updates(settings))
+        if not settings.telegram_bot_token:
+            # 토큰을 아직 안 넣었으면 15분마다 실패 메일이 가지 않게 조용히 건너뛴다.
+            print("TELEGRAM_BOT_TOKEN이 없어서 건너뜀 (Repository secrets에 등록했는지 확인)")
+            has_updates = False
+        else:
+            bot_name = _tg(settings, "getMe")["username"]
+            count = len(_fetch_updates(settings))
+            print(f"봇 @{bot_name}: 새 메시지 {count}건 (이 봇에게 보냈는지 확인)")
+            has_updates = count > 0
         print(f"has_updates={str(has_updates).lower()}")
         output = os.getenv("GITHUB_OUTPUT")
         if output:
