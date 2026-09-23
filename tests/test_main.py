@@ -97,7 +97,11 @@ def test_run_uses_product_photo_first_then_ai_images(*args):
     m["write_script"].assert_called_once_with(settings, _products()[0])
     m["download_image"].assert_called_once_with("http://a.jpg")
     assert [c.args[1] for c in m["generate_image"].call_args_list] == ["prompt2", "prompt3"]
-    assert m["assemble_video"].call_args[0][2] == ["work/image_1.png", "work/image_2.png", None]
+    # 3번째 AI 이미지 실패 → 상품 사진 재사용
+    assert m["assemble_video"].call_args[0][2] == [
+        "work/image_1.png", "work/image_2.png", "work/image_3.png"
+    ]
+    assert m["save_generated_image"].call_args_list[2].args[2] == JPG
     m["build_description"].assert_called_once_with(
         "문장1 문장2", _products()[0], "https://t.me/x", ["케이스"]
     )
@@ -141,3 +145,15 @@ def test_run_does_not_save_posted_ids_when_upload_fails(*args):
         main.run()
 
     m["save_posted_ids"].assert_not_called()
+
+
+@_patch_pipeline
+def test_run_uses_color_background_when_photo_and_ai_both_fail(*args):
+    m = _mocks(args)
+    _setup(m, ["문장1", "문장2"])
+    m["download_image"].return_value = None
+    m["generate_image"].return_value = None
+
+    main.run()
+
+    assert m["assemble_video"].call_args[0][2] == [None, None]

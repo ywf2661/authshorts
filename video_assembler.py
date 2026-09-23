@@ -1,10 +1,13 @@
 import os
 import subprocess
+import textwrap
 
 # ffmpeg's fontconfig fallback (DejaVu Sans on ubuntu-latest) has no Hangul
 # glyphs, so Korean captions would silently render as blank boxes. Pin a
 # Hangul-capable font instead (installed via .github/workflows/shortsbot.yml).
 FONT_PATH = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
+# 56px 한글 기준 한 줄 14자 ≈ 800px — 화면 폭과 쇼츠 우측 버튼 영역 안쪽에 들어온다.
+CAPTION_CHARS_PER_LINE = 14
 
 
 def _run_ffmpeg(cmd: list[str]) -> None:
@@ -21,12 +24,13 @@ def _build_segment(
     out_dir = os.path.dirname(out_path) or "."
     caption_path = os.path.join(out_dir, f"caption_{index}.txt")
     with open(caption_path, "w", encoding="utf-8") as f:
-        f.write(text)
+        f.write(textwrap.fill(text, CAPTION_CHARS_PER_LINE))
 
     drawtext = (
         f"drawtext=textfile='{caption_path}':fontfile='{FONT_PATH}':"
-        "fontcolor=white:fontsize=48:"
-        "box=1:boxcolor=black@0.6:boxborderw=16:x=(w-text_w)/2:y=h-200"
+        "fontcolor=white:fontsize=56:line_spacing=14:"
+        # 쇼츠 하단 ~25%는 제목·버튼 UI에 가려지므로 화면 62% 높이에 중앙 정렬.
+        "box=1:boxcolor=black@0.6:boxborderw=20:x=(w-text_w)/2:y=h*0.62-text_h/2"
     )
     if image_path is None:
         video_input = ["-f", "lavfi", "-i", "color=c=0x1a1a2e:s=1080x1920"]

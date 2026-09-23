@@ -48,7 +48,7 @@ def test_assemble_video_writes_caption_to_textfile_with_apostrophe(mock_run, tmp
     assemble_video([sentence], ["a1.mp3"], ["i1.png"], out_path)
 
     caption_path = tmp_path / "caption_1.txt"
-    assert caption_path.read_text(encoding="utf-8") == sentence
+    assert caption_path.read_text(encoding="utf-8") == "OpenAI's new\nmodel"  # 14자 줄바꿈
 
     first_call_cmd = mock_run.call_args_list[0].args[0]
     vf_arg = first_call_cmd[first_call_cmd.index("-vf") + 1]

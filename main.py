@@ -67,7 +67,7 @@ def run() -> str | None:
     work_dir = os.path.join(WORK_DIR, f"{today}-{link_hash[:10]}")
     os.makedirs(work_dir, exist_ok=True)
 
-    # 첫 장면은 실제 상품 사진, 실패하면 AI 삽화로 대체.
+    # 첫 장면은 실제 상품 사진, 나머지는 AI 삽화. 둘 중 하나가 실패하면 다른 쪽으로 채운다.
     product_photo = download_image(product.get("productImage", ""))
     image_paths = []
     for i, image_prompt in enumerate(script["image_prompts"], start=1):
@@ -75,6 +75,9 @@ def run() -> str | None:
         if image_bytes is None:
             image_bytes = generate_image(settings, image_prompt)
         if not _is_image(image_bytes):
+            # AI 이미지까지 실패하면 단색 배경 대신 상품 사진을 재사용.
+            image_bytes = product_photo if _is_image(product_photo) else None
+        if image_bytes is None:
             image_paths.append(None)
             continue
         image_paths.append(save_generated_image(work_dir, f"image_{i}.png", image_bytes))
