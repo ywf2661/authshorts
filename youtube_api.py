@@ -20,7 +20,9 @@ def refresh_access_token(settings: Settings) -> str:
         },
         timeout=10,
     )
-    response.raise_for_status()
+    if not response.ok:
+        # invalid_grant / invalid_client 등 구글이 준 실제 사유를 로그에 남긴다
+        raise RuntimeError(f"토큰 갱신 실패 {response.status_code}: {response.text}")
     return response.json()["access_token"]
 
 
@@ -40,7 +42,8 @@ def upload_video(
                 "description": description,
                 "channelId": settings.youtube_channel_id,
             },
-            "status": {"privacyStatus": "public"},
+            # AI 생성 이미지·음성 사용 → YouTube 합성 콘텐츠 표시 정책
+            "status": {"privacyStatus": "public", "containsSyntheticMedia": True},
         },
         media_body=media,
     )

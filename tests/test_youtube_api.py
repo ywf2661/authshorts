@@ -37,6 +37,7 @@ def test_upload_video_returns_watch_url_and_sets_public(
     assert url == "https://youtu.be/abc123"
     insert_kwargs = mock_youtube.videos.return_value.insert.call_args.kwargs
     assert insert_kwargs["body"]["status"]["privacyStatus"] == "public"
+    assert insert_kwargs["body"]["status"]["containsSyntheticMedia"] is True
     assert insert_kwargs["body"]["snippet"]["channelId"] == "chan123"
     assert insert_kwargs["body"]["snippet"]["title"] == "제목"
 

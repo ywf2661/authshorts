@@ -1,3 +1,6 @@
+COUPANG_DISCLOSURE = "이 게시물은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다."
+
+
 def build_description(
     script_summary: str, products: list[dict], telegram_url: str, keywords: list[str]
 ) -> str:
@@ -6,6 +9,7 @@ def build_description(
 
     if products:
         lines.append("🔗 관련 상품")
+        lines.append(COUPANG_DISCLOSURE)
         for p in products:
             lines.append(f"{p['productName']}: {p['productUrl']}")
         lines.append("")

@@ -10,6 +10,7 @@ def test_build_description_includes_products_and_telegram_link():
     )
 
     assert "노트북 A: http://x" in result
+    assert "쿠팡 파트너스 활동의 일환" in result
     assert "https://t.me/channel" in result
     assert "#AI" in result
     assert "#노트북" in result
