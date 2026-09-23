@@ -9,6 +9,21 @@ GitHub 웹/앱에서 파일 열고 ✏️ 편집 → 한 줄 붙여넣기 → Co
 다 쓰면 봇은 업로드 없이 종료하니 주기적으로 채워주세요. 영상 제목엔 자동으로 `[광고]`가 붙습니다.
 (쿠팡은 봇 접근을 403으로 막아 링크만으로 상품명·이미지를 자동으로 가져올 수는 없습니다.)
 
+## 사용 영상 봇 (텔레그램 → 쇼츠)
+
+휴대폰으로 찍은 쿠팡템 사용 영상(목소리 없음)을 텔레그램 봇에게 보내면, 장면을 골라 나레이션·자막을 입힌
+미리보기를 보내줍니다. **[✅ 업로드]** 를 누르면 유튜브에 올라갑니다 (`usage_bot.py`, 15분마다 확인).
+
+- 캡션에 `상품명 | 쿠팡 파트너스 링크`를 꼭 적어 보내세요.
+- '파일'이 아니라 **일반 동영상**으로 보내야 20MB 안으로 압축됩니다 (텔레그램 봇 다운로드 한도).
+- 15분마다 확인하므로 미리보기·업로드까지 각각 최대 15분 정도 걸릴 수 있습니다.
+
+**설정**
+1. 텔레그램에서 `@BotFather` → `/newbot` → 받은 토큰을 GitHub Secret `TELEGRAM_BOT_TOKEN`에 저장
+2. 만든 봇에게 아무 메시지나 보내고 Actions → usage-video-bot → Run workflow 실행
+   → 봇이 `내 chat id: 123...`로 답장하면 그 숫자를 Secret `TELEGRAM_OWNER_CHAT_ID`에 저장
+   (이 id가 아닌 사람이 보낸 영상은 처리하지 않습니다)
+
 ## 로컬 실행
 
 1. `pip install -r requirements.txt`
@@ -24,7 +39,9 @@ GitHub 웹/앱에서 파일 열고 ✏️ 편집 → 한 줄 붙여넣기 → Co
 | YOUTUBE_REFRESH_TOKEN | `youtube.upload` 스코프로 1회 동의해서 받은 refresh token |
 | YOUTUBE_CHANNEL_ID | 업로드 대상 채널 ID |
 | TELEGRAM_CHANNEL_URL | 설명란에 넣을 텔레그램 채널 초대 링크 |
-| HF_API_KEY | 선택 — 없으면 이미지 대신 단색 배경으로 대체 |
+| HF_API_KEY | 선택 — 없거나 실패하면 무료 Pollinations 이미지로 대체 |
+| TELEGRAM_BOT_TOKEN | 사용 영상 봇 전용 — @BotFather에서 발급 |
+| TELEGRAM_OWNER_CHAT_ID | 사용 영상 봇 전용 — 영상을 보낼 본인 chat id |
 
 ## 사전 준비
 

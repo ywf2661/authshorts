@@ -67,3 +67,14 @@ def test_assemble_video_prints_stderr_and_reraises_on_ffmpeg_failure(mock_run, t
         assemble_video(["문장1"], ["a1.mp3"], ["i1.png"], str(tmp_path / "out.mp4"))
 
     assert "ffmpeg exploded" in capsys.readouterr().out
+
+
+@patch("video_assembler.subprocess.run")
+def test_assemble_video_cuts_clip_segment_and_drops_original_audio(mock_run, tmp_path):
+    assemble_video(["문장1"], ["a1.mp3"], [("src.mp4", 3.5)], str(tmp_path / "out.mp4"))
+
+    cmd = mock_run.call_args_list[0].args[0]
+    assert cmd[cmd.index("-ss") + 1] == "3.5"
+    assert cmd[cmd.index("-ss") + 3] == "src.mp4"
+    assert "tpad=stop_mode=clone" in cmd[cmd.index("-vf") + 1]
+    assert cmd[cmd.index("-map") + 1] == "0:v"

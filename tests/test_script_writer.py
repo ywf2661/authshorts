@@ -105,3 +105,35 @@ def test_write_script_raises_when_image_prompts_length_mismatch(mock_post):
 
     with pytest.raises(ValueError):
         write_script(_settings(), _product())
+
+
+def _clip_frames():
+    return [(0.0, b"jpg0"), (2.0, b"jpg1")]
+
+
+@patch("script_writer.requests.post")
+def test_write_clip_script_returns_sentences_and_starts(mock_post):
+    from script_writer import write_clip_script
+
+    _mock_post_with_text(
+        mock_post,
+        '"title": "t", "segments": [{"start": 0, "sentence": "s1"}, {"start": 2, "sentence": "s2"}], '
+        '"keywords": ["케이스"]}',
+    )
+
+    result = write_clip_script(_settings(), _product(), _clip_frames(), 5.0)
+
+    assert result["sentences"] == ["s1", "s2"]
+    assert result["starts"] == [0.0, 2.0]
+    content = mock_post.call_args.kwargs["json"]["messages"][0]["content"]
+    assert [c["type"] for c in content] == ["text", "image", "text", "image", "text"]
+
+
+@patch("script_writer.requests.post")
+def test_write_clip_script_rejects_start_outside_video(mock_post):
+    from script_writer import write_clip_script
+
+    _mock_post_with_text(mock_post, '"title": "t", "segments": [{"start": 9, "sentence": "s"}]}')
+
+    with pytest.raises(ValueError, match="범위"):
+        write_clip_script(_settings(), _product(), _clip_frames(), 5.0)

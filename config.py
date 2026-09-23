@@ -13,6 +13,9 @@ class Settings:
     youtube_channel_id: str
     telegram_channel_url: str
     hf_api_key: str = ""
+    # 사용 영상 봇(usage_bot.py)에서만 사용
+    telegram_bot_token: str = ""
+    telegram_owner_chat_id: str = ""
 
 
 def _clean(value: str) -> str:
@@ -42,4 +45,6 @@ def load_settings() -> Settings:
         youtube_channel_id=os.environ["YOUTUBE_CHANNEL_ID"],
         telegram_channel_url=os.environ["TELEGRAM_CHANNEL_URL"],
         hf_api_key=os.getenv("HF_API_KEY", ""),
+        telegram_bot_token=_clean(os.getenv("TELEGRAM_BOT_TOKEN", "")),
+        telegram_owner_chat_id=_clean(os.getenv("TELEGRAM_OWNER_CHAT_ID", "")),
     )

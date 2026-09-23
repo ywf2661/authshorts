@@ -1,0 +1,38 @@
+name: usage-video-bot
+
+on:
+  schedule:
+    # 텔레그램은 봇 메시지를 24시간만 보관하므로 자주 확인한다. 새 메시지가 없으면 ffmpeg 설치 없이 바로 끝남.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: usage-video-bot
+  cancel-in-progress: false
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
+      TELEGRAM_CHANNEL_URL: ${{ secrets.TELEGRAM_CHANNEL_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - id: peek
+        run: python usage_bot.py --peek
+      - name: Install ffmpeg and Korean fonts for captions
+        if: steps.peek.outputs.has_updates == 'true'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-nanum
+      - if: steps.peek.outputs.has_updates == 'true'
+        run: python usage_bot.py

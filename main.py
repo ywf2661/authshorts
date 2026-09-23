@@ -16,8 +16,20 @@ WORK_DIR = "work"
 AD_PREFIX = "[광고] "  # 공정위 추천·보증 심사지침: 영상 광고는 제목에 경제적 이해관계 표시
 
 
+def parse_product_line(line: str) -> dict | None:
+    """'상품명 | 링크 | 이미지(선택)' 한 줄을 상품 dict로. 형식이 틀리면 None."""
+    parts = [part.strip() for part in line.split("|")]
+    if len(parts) < 2 or not parts[0] or not parts[1].startswith("http"):
+        return None
+    return {
+        "productName": parts[0],
+        "productUrl": parts[1],
+        "productImage": parts[2] if len(parts) > 2 else "",
+    }
+
+
 def _load_products(path: str) -> list[dict]:
-    """products.txt의 '상품명 | 링크 | 이미지(선택)' 줄을 파일 순서대로 읽는다 (같은 링크는 한 번만)."""
+    """products.txt를 파일 순서대로 읽는다 (주석·빈 줄 무시, 같은 링크는 한 번만)."""
     seen = set()
     products = []
     with open(path, "r", encoding="utf-8") as f:
@@ -25,18 +37,14 @@ def _load_products(path: str) -> list[dict]:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            parts = [part.strip() for part in line.split("|")]
-            if len(parts) < 2 or not parts[0] or not parts[1].startswith("http"):
+            product = parse_product_line(line)
+            if product is None:
                 print(f"형식이 잘못된 줄은 건너뜀: {line}")
                 continue
-            if parts[1] in seen:
+            if product["productUrl"] in seen:
                 continue
-            seen.add(parts[1])
-            products.append({
-                "productName": parts[0],
-                "productUrl": parts[1],
-                "productImage": parts[2] if len(parts) > 2 else "",
-            })
+            seen.add(product["productUrl"])
+            products.append(product)
     return products
 
 

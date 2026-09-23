@@ -1,3 +1,4 @@
+import base64
 import json
 
 import requests
@@ -49,9 +50,8 @@ def _validate_script_shape(sentences, image_prompts) -> None:
         raise ValueError(f"image_prompts에는 비어있지 않은 문자열만 허용됨: {image_prompts!r}")
 
 
-def write_script(settings: Settings, product: dict) -> dict:
-    """쿠팡 상품 1개를 소개하는 쇼츠 대본을 작성한다."""
-    prompt = PROMPT_TEMPLATE.format(product_name=product["productName"])
+def _ask_claude(settings: Settings, content) -> dict:
+    """Claude에 JSON 응답을 요청해 dict로 파싱한다."""
     response = requests.post(
         API_URL,
         headers={
@@ -63,11 +63,11 @@ def write_script(settings: Settings, product: dict) -> dict:
             "model": MODEL,
             "max_tokens": 2000,
             "messages": [
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": content},
                 {"role": "assistant", "content": "{"},
             ],
         },
-        timeout=60,
+        timeout=120,
     )
     response.raise_for_status()
     response_body = response.json()
@@ -76,9 +76,14 @@ def write_script(settings: Settings, product: dict) -> dict:
     except (KeyError, IndexError) as e:
         raise ValueError(f"Claude 응답 구조 오류: {response_body!r}") from e
     try:
-        result = json.loads("{" + text)
+        return json.loads("{" + text)
     except json.JSONDecodeError as e:
         raise ValueError(f"Claude 응답이 JSON이 아님: {text!r}") from e
+
+
+def write_script(settings: Settings, product: dict) -> dict:
+    """쿠팡 상품 1개를 소개하는 쇼츠 대본을 작성한다."""
+    result = _ask_claude(settings, PROMPT_TEMPLATE.format(product_name=product["productName"]))
 
     required = ("title", "sentences", "image_prompts")
     if any(key not in result for key in required):
@@ -91,4 +96,57 @@ def write_script(settings: Settings, product: dict) -> dict:
         "sentences": result["sentences"],
         "keywords": result.get("keywords", []),
         "image_prompts": result["image_prompts"],
+    }
+
+
+CLIP_PROMPT_TEMPLATE = """위 이미지들은 쿠팡 상품 "{product_name}"의 실제 사용 영상(총 {duration:.0f}초)에서
+균등 간격으로 뽑은 프레임이고, 각 이미지 앞의 t=숫자는 그 프레임의 영상 내 시각(초)이다.
+
+이 영상으로 "요즘 잇템"을 소개하는 30~45초 분량(문장 4~6개)의 한국어 나레이션 쇼츠를 만든다.
+각 문장마다 그 문장과 가장 잘 어울리는 장면의 시작 시각(start, 초)을 위 t 값 중에서 골라라.
+흔들리거나 흐리거나 아무것도 안 보이는 프레임은 고르지 마라. 가능하면 서로 다른 장면을 골라라.
+첫 문장은 스크롤을 멈추게 하는 후킹 문장으로, 마지막 문장은 "설명란 링크에서 확인해보세요" 같은 행동 유도로 끝내라.
+화면에 보이는 것과 상품명에 드러난 것 이외의 스펙·수치·효능은 지어내지 마라. 가격은 말하지 마라.
+해시태그로 쓸 상품 카테고리 키워드를 1~2개 뽑아라.
+
+다음 JSON 형식으로만 응답하라:
+{{"title": "쇼츠 제목", "segments": [{{"start": 0, "sentence": "문장1"}}], "keywords": ["키워드1"]}}
+"""
+
+
+def write_clip_script(
+    settings: Settings, product: dict, frames: list[tuple[float, bytes]], duration: float
+) -> dict:
+    """사용 영상 프레임을 보고 장면별 나레이션 대본을 작성한다."""
+    content = []
+    for t, jpeg in frames:
+        content.append({"type": "text", "text": f"t={t}"})
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg",
+                       "data": base64.b64encode(jpeg).decode()},
+        })
+    content.append({
+        "type": "text",
+        "text": CLIP_PROMPT_TEMPLATE.format(product_name=product["productName"], duration=duration),
+    })
+    result = _ask_claude(settings, content)
+
+    segments = result.get("segments")
+    if "title" not in result or not isinstance(segments, list):
+        raise ValueError(f"Claude 응답에 필수 필드 누락: {result!r}")
+    sentences = [seg.get("sentence") for seg in segments if isinstance(seg, dict)]
+    _validate_script_shape(sentences, sentences)  # 이미지 프롬프트 대신 문장 자체로 개수 검증
+    starts = []
+    for seg in segments:
+        start = seg.get("start")
+        if not isinstance(start, (int, float)) or not (0 <= start < duration):
+            raise ValueError(f"start가 영상 범위를 벗어남: {start!r} (영상 {duration}초)")
+        starts.append(float(start))
+
+    return {
+        "title": result["title"],
+        "sentences": sentences,
+        "starts": starts,
+        "keywords": result.get("keywords", []),
     }
