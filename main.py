@@ -2,68 +2,79 @@ import datetime
 import os
 
 from config import load_settings
-from coupang_search import search_products
 from dedup import hash_link, load_posted_ids, save_posted_ids
 from description_builder import build_description
-from image_generator import generate_image, save_generated_image
-from rss_reader import fetch_feed_entries
-from script_writer import pick_and_write_script
+from image_generator import download_image, generate_image, save_generated_image
+from script_writer import write_script
 from tts import synthesize
 from video_assembler import assemble_video
 from youtube_api import refresh_access_token, upload_video
 
-FEEDS_PATH = os.path.join(os.path.dirname(__file__), "feeds.txt")
+PRODUCTS_PATH = os.path.join(os.path.dirname(__file__), "products.txt")
 POSTED_IDS_PATH = os.path.join(os.path.dirname(__file__), "shorts_posted_ids.json")
 WORK_DIR = "work"
-CANDIDATE_LIMIT = 10
+AD_PREFIX = "[광고] "  # 공정위 추천·보증 심사지침: 영상 광고는 제목에 경제적 이해관계 표시
 
 
-def _load_feed_urls(path: str) -> list[str]:
+def _load_products(path: str) -> list[dict]:
+    """products.txt의 '상품명 | 링크 | 이미지(선택)' 줄을 파일 순서대로 읽는다 (같은 링크는 한 번만)."""
+    seen = set()
+    products = []
     with open(path, "r", encoding="utf-8") as f:
-        return [line.strip() for line in f if line.strip()]
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [part.strip() for part in line.split("|")]
+            if len(parts) < 2 or not parts[0] or not parts[1].startswith("http"):
+                print(f"형식이 잘못된 줄은 건너뜀: {line}")
+                continue
+            if parts[1] in seen:
+                continue
+            seen.add(parts[1])
+            products.append({
+                "productName": parts[0],
+                "productUrl": parts[1],
+                "productImage": parts[2] if len(parts) > 2 else "",
+            })
+    return products
 
 
-def _pick_candidates(entries: list[dict], posted_ids: set[str], limit: int) -> list[dict]:
-    """미게시 항목을 최신순으로 최대 limit개 반환한다."""
-    unposted = [e for e in entries if hash_link(e["link"]) not in posted_ids]
-    unposted.sort(key=lambda e: e["published"], reverse=True)
-    return unposted[:limit]
+def _pick_product(products: list[dict], posted_ids: set[str]) -> dict | None:
+    """아직 안 올린 첫 상품을 반환한다."""
+    return next((p for p in products if hash_link(p["productUrl"]) not in posted_ids), None)
+
+
+def _is_image(data: bytes | None) -> bool:
+    # HF/쿠팡이 에러 본문을 줄 수 있음 — ffmpeg가 디코딩에 실패하면 전체 실행이 죽는다.
+    return data is not None and (data.startswith(b"\x89PNG") or data.startswith(b"\xff\xd8"))
 
 
 def run() -> str | None:
     """숏츠봇 1회 실행. 업로드에 성공하면 영상 URL, 아니면 None."""
     settings = load_settings()
 
-    feed_urls = _load_feed_urls(FEEDS_PATH)
-    entries = fetch_feed_entries(feed_urls)
-    if not entries:
-        print(f"수집된 기사가 없습니다 (피드 {len(feed_urls)}개 모두 실패했을 수 있음).")
-        return None
-
     posted_ids = load_posted_ids(POSTED_IDS_PATH)
-    candidates = _pick_candidates(entries, posted_ids, CANDIDATE_LIMIT)
-    if not candidates:
-        print(f"기사 {len(entries)}건을 수집했지만 새로운 후보가 없습니다.")
+    product = _pick_product(_load_products(PRODUCTS_PATH), posted_ids)
+    if product is None:
+        print("새로 소개할 상품이 없습니다 — products.txt에 상품을 추가하세요.")
         return None
 
-    script = pick_and_write_script(settings, candidates)
-    link_hash = hash_link(script["chosen_link"])
+    script = write_script(settings, product)
+    link_hash = hash_link(product["productUrl"])
 
     today = datetime.date.today().isoformat()
     work_dir = os.path.join(WORK_DIR, f"{today}-{link_hash[:10]}")
     os.makedirs(work_dir, exist_ok=True)
 
+    # 첫 장면은 실제 상품 사진, 실패하면 AI 삽화로 대체.
+    product_photo = download_image(product.get("productImage", ""))
     image_paths = []
     for i, image_prompt in enumerate(script["image_prompts"], start=1):
-        image_bytes = generate_image(settings, image_prompt)
-        if image_bytes is not None and not (
-            image_bytes.startswith(b"\x89PNG") or image_bytes.startswith(b"\xff\xd8")
-        ):
-            # HF returned something that isn't actually image data (e.g. an
-            # error body) -- ffmpeg would fail to decode it and kill the
-            # whole run. Fall back to a solid-color background instead.
-            image_bytes = None
+        image_bytes = product_photo if i == 1 and _is_image(product_photo) else None
         if image_bytes is None:
+            image_bytes = generate_image(settings, image_prompt)
+        if not _is_image(image_bytes):
             image_paths.append(None)
             continue
         image_paths.append(save_generated_image(work_dir, f"image_{i}.png", image_bytes))
@@ -75,12 +86,14 @@ def run() -> str | None:
     )
 
     summary = " ".join(script["sentences"][:2])
-    keywords = script.get("keywords", [])
-    products = search_products(keywords[0]) if keywords else []
-    description = build_description(summary, products, settings.telegram_channel_url, keywords)
+    description = build_description(
+        summary, product, settings.telegram_channel_url, script.get("keywords", [])
+    )
 
     access_token = refresh_access_token(settings)
-    video_url = upload_video(settings, access_token, video_path, script["title"], description)
+    video_url = upload_video(
+        settings, access_token, video_path, AD_PREFIX + script["title"], description
+    )
 
     posted_ids.add(link_hash)
     save_posted_ids(POSTED_IDS_PATH, posted_ids)
@@ -92,5 +105,3 @@ if __name__ == "__main__":
     result = run()
     if result:
         print(f"업로드 완료: {result}")
-    else:
-        print("새로 업로드할 기사가 없습니다.")

@@ -1,6 +1,5 @@
 requests
 python-dotenv
-feedparser
 edge-tts
 google-api-python-client
 google-auth

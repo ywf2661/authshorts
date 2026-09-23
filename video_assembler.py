@@ -38,7 +38,9 @@ def _build_segment(
         *video_input,
         "-i", audio_path,
         "-vf",
-        f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,{drawtext}",
+        # 정사각형 상품 사진이 잘리지 않게 크롭 대신 여백(단색 배경)을 채운다.
+        "scale=1080:1920:force_original_aspect_ratio=decrease,"
+        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=0x1a1a2e,{drawtext}",
         "-c:v", "libx264", "-tune", "stillimage", "-c:a", "aac",
         "-pix_fmt", "yuv420p", "-shortest",
         out_path,

@@ -2,22 +2,21 @@ COUPANG_DISCLOSURE = "이 게시물은 쿠팡 파트너스 활동의 일환으�
 
 
 def build_description(
-    script_summary: str, products: list[dict], telegram_url: str, keywords: list[str]
+    script_summary: str, product: dict, telegram_url: str, keywords: list[str]
 ) -> str:
-    """쇼츠 설명란 텍스트를 조립한다. 관련상품이 없으면 그 섹션은 생략한다."""
-    lines = [script_summary, ""]
-
-    if products:
-        lines.append("🔗 관련 상품")
-        lines.append(COUPANG_DISCLOSURE)
-        for p in products:
-            lines.append(f"{p['productName']}: {p['productUrl']}")
-        lines.append("")
-
-    lines.append(f"📢 AI 뉴스 텔레그램: {telegram_url}")
-
-    lines.append("")
-    tags = ["AI", "쇼츠", *keywords]
+    """쇼츠 설명란 텍스트를 조립한다. 수수료 고지와 상품 링크를 맨 위에 둔다."""
+    lines = [
+        COUPANG_DISCLOSURE,
+        "",
+        f"🛒 {product['productName']}",
+        product["productUrl"],
+        "",
+        script_summary,
+        "",
+        f"📢 텔레그램: {telegram_url}",
+        "",
+    ]
+    tags = ["쿠팡", "추천템", "쇼츠", *keywords]
     lines.append(" ".join(f"#{k.replace(' ', '')}" for k in tags))
 
     return "\n".join(lines)

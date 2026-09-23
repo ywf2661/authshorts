@@ -36,6 +36,19 @@ def generate_image(settings: Settings, prompt: str) -> bytes | None:
         return None
 
 
+def download_image(url: str) -> bytes | None:
+    """URL의 이미지를 받아 bytes로 반환한다. URL이 없거나 실패하면 None."""
+    if not url:
+        return None
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        return response.content
+    except requests.RequestException as e:
+        print(f"상품 이미지 다운로드 실패, 건너뜀: {e}")
+        return None
+
+
 def save_generated_image(dir_path: str, filename: str, data: bytes) -> str:
     """이미지를 파일로 저장하고 경로를 반환한다."""
     os.makedirs(dir_path, exist_ok=True)

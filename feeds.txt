@@ -1,5 +1,0 @@
-https://www.aitimes.com/rss/allArticle.xml
-https://techcrunch.com/category/artificial-intelligence/feed/
-https://openai.com/news/rss.xml
-https://www.artificialintelligence-news.com/feed/
-https://www.technologyreview.com/topic/artificial-intelligence/feed
