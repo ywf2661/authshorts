@@ -32,12 +32,17 @@ def test_upload_video_returns_watch_url_and_sets_public(
     mock_youtube.videos.return_value.insert.return_value = mock_request
     mock_build.return_value = mock_youtube
 
-    url = upload_video(_settings(), "token", "video.mp4", "제목", "설명")
+    url = upload_video(_settings(), "token", "video.mp4", "제목", "설명", synthetic=False)
 
     assert url == "https://youtu.be/abc123"
     insert_kwargs = mock_youtube.videos.return_value.insert.call_args.kwargs
     assert insert_kwargs["body"]["status"]["privacyStatus"] == "public"
-    assert insert_kwargs["body"]["status"]["containsSyntheticMedia"] is True
+    assert insert_kwargs["body"]["status"]["containsSyntheticMedia"] is False
+    assert insert_kwargs["body"]["status"]["selfDeclaredMadeForKids"] is False
+    # 유료 광고 표시는 status가 아니라 별도 part
+    assert "paidProductPlacementDetails" in insert_kwargs["part"]
+    assert insert_kwargs["body"]["paidProductPlacementDetails"] == {"hasPaidProductPlacement": True}
+    assert insert_kwargs["body"]["snippet"]["categoryId"] == "26"
     assert insert_kwargs["body"]["snippet"]["channelId"] == "chan123"
     assert insert_kwargs["body"]["snippet"]["title"] == "제목"
 

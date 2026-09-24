@@ -32,3 +32,12 @@ def build_description(
     lines.append(" ".join(f"#{tag}" for tag in hashtags(keywords)))
 
     return "\n".join(lines)
+
+
+def build_top_description(products: list[dict], number: int, keywords: list[str]) -> str:
+    """TOP N 쇼츠 설명란: 수수료 고지 → 프로필 링크 안내 → 순위별 상품명·링크 원문(복사용) → 해시태그."""
+    lines = [COUPANG_DISCLOSURE, "", f"📌 왼쪽 아래 채널명 → 프로필 링크 #{number}", ""]
+    for rank, product in enumerate(products, start=1):
+        lines += [f"{rank}위 {product['productName']}", product["productUrl"], ""]
+    lines.append(" ".join(f"#{tag}" for tag in hashtags(keywords)))
+    return "\n".join(lines)

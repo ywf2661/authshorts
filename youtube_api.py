@@ -33,15 +33,18 @@ def refresh_access_token(settings: Settings) -> str:
 
 def upload_video(
     settings: Settings, access_token: str, video_path: str, title: str, description: str,
-    tags: list[str] = (),
+    tags: list[str] = (), synthetic: bool = True,
 ) -> str:
-    """영상을 채널에 공개(public)로 업로드하고 시청 URL을 반환한다."""
+    """영상을 채널에 공개(public)로 업로드하고 시청 URL을 반환한다.
+
+    synthetic: YouTube '변경되거나 합성된 콘텐츠' 표시. 실제 상품 사진만 쓰는 TOP3 봇은 False.
+    """
     title = title[:100]  # YouTube snippet.title 최대 100자
     credentials = Credentials(token=access_token)
     youtube = build("youtube", "v3", credentials=credentials)
     media = MediaFileUpload(video_path, mimetype="video/mp4", resumable=True)
     request = youtube.videos().insert(
-        part="snippet,status",
+        part="snippet,status,paidProductPlacementDetails",
         body={
             "snippet": {
                 "title": title,
@@ -49,9 +52,16 @@ def upload_video(
                 "channelId": settings.youtube_channel_id,
                 # 검색용 숨은 태그 (설명란 해시태그와 같은 목록)
                 "tags": list(tags),
+                "categoryId": "26",  # 노하우/스타일
+                "defaultLanguage": "ko",
             },
-            # AI 생성 이미지·음성 사용 → YouTube 합성 콘텐츠 표시 정책
-            "status": {"privacyStatus": "public", "containsSyntheticMedia": True},
+            "status": {
+                "privacyStatus": "public",
+                "selfDeclaredMadeForKids": False,
+                "containsSyntheticMedia": synthetic,
+            },
+            # 쿠팡 파트너스 수수료 → '유료 광고 포함' 라벨
+            "paidProductPlacementDetails": {"hasPaidProductPlacement": True},
         },
         media_body=media,
     )

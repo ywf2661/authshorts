@@ -1,62 +1,61 @@
-import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from tts import DEFAULT_VOICE, synthesize
+import tts
 
 
-def test_default_voice_is_hyunsu():
-    assert DEFAULT_VOICE == "ko-KR-HyunsuMultilingualNeural"
+def test_speech_text_adds_pause_between_beats():
+    assert tts.speech_text(["3위는 문풍지", "끝이에요!"]) == "3위는 문풍지. 끝이에요!"
 
 
-@patch("tts._synthesize_one", new_callable=AsyncMock)
-def test_synthesize_uses_edge_tts_without_azure_key(mock_synth, tmp_path):
-    paths = synthesize(["문장1", "문장2"], str(tmp_path))
+def test_timeline_aligns_word_boundaries_to_beats():
+    texts = ["올겨울 이거 없으면", "3위는 문풍지예요"]
+    words = [(0.1, 0.5, "올겨울"), (0.5, 0.8, "이거"), (0.8, 1.2, "없으면"),
+             (1.6, 1.9, "3위는"), (1.9, 2.6, "문풍지예요")]
 
-    assert paths == [str(tmp_path / "1.mp3"), str(tmp_path / "2.mp3")]
-    mock_synth.assert_any_call("문장1", str(tmp_path / "1.mp3"), DEFAULT_VOICE)
-    mock_synth.assert_any_call("문장2", str(tmp_path / "2.mp3"), DEFAULT_VOICE)
+    beats = tts.timeline(texts, words, 3.0)
 
-
-@patch("tts._synthesize_one", new_callable=AsyncMock)
-@patch("tts.requests.post")
-def test_synthesize_uses_azure_when_key_present(mock_post, mock_edge, tmp_path):
-    mock_post.return_value = MagicMock(ok=True, content=b"mp3")
-
-    paths = synthesize(["A&B <좋아요>"], str(tmp_path), "key", "koreacentral")
-
-    assert (tmp_path / "1.mp3").read_bytes() == b"mp3"
-    mock_edge.assert_not_called()
-    assert mock_post.call_args.args[0] == "https://koreacentral.tts.speech.microsoft.com/cognitiveservices/v1"
-    ssml = mock_post.call_args.kwargs["data"].decode("utf-8")
-    assert DEFAULT_VOICE in ssml
-    assert "A&amp;B &lt;좋아요&gt;" in ssml  # SSML 특수문자 이스케이프
-    assert paths == [str(tmp_path / "1.mp3")]
+    assert beats[0]["start"] == 0.0
+    assert beats[0]["end"] == pytest.approx(1.4)  # 1.2와 1.6의 중간
+    assert beats[1]["start"] == pytest.approx(1.4)
+    assert beats[1]["end"] == 3.0
+    assert beats[1]["words"] == [(1.6, 1.9), (1.9, 2.6)]
 
 
-@patch("tts._synthesize_one", new_callable=AsyncMock)
-@patch("tts.requests.post")
-def test_synthesize_falls_back_to_edge_when_azure_fails(mock_post, mock_edge, tmp_path):
-    mock_post.return_value = MagicMock(ok=False, status_code=401, text="unauthorized")
+def test_timeline_tolerates_punctuation_and_split_words():
+    texts = ["대망의 1위는, 난방텐트!"]
+    words = [(0.0, 0.4, "대망의"), (0.4, 0.6, "1위"), (0.6, 0.8, "는"), (0.9, 1.5, "난방텐트")]
 
-    synthesize(["문장1"], str(tmp_path), "bad", "koreacentral")
+    beats = tts.timeline(texts, words, 2.0)
 
-    mock_edge.assert_called_once_with("문장1", str(tmp_path / "1.mp3"), DEFAULT_VOICE)
+    assert beats[0]["words"] == [(0.0, 0.4), (0.4, 0.8), (0.9, 1.5)]
 
 
-@patch("tts._synthesize_one", new_callable=AsyncMock)
-def test_synthesize_propagates_errors(mock_synth, tmp_path):
-    mock_synth.side_effect = RuntimeError("network down")
+def test_timeline_falls_back_to_char_proportional_when_words_mismatch():
+    texts = ["가나 다라마바"]
+    beats = tts.timeline(texts, [(0.0, 1.0, "전혀다른말")], 6.0)
 
+    assert beats[0]["words"] == [(0.0, 2.0), (2.0, 6.0)]
+
+
+def test_timeline_without_words_is_proportional():
+    beats = tts.timeline(["가나", "다라"], None, 4.0)
+
+    assert [b["start"] for b in beats] == [0.0, 2.0]
+    assert beats[-1]["end"] == 4.0
+
+
+@patch("tts._synthesize_azure")
+@patch("tts._synthesize_edge", side_effect=RuntimeError("edge 막힘"))
+def test_synthesize_falls_back_to_azure_without_timings(edge, azure, tmp_path):
+    result = tts.synthesize(["안녕"], str(tmp_path / "n.mp3"), "key", "koreacentral")
+
+    assert result is None
+    azure.assert_called_once()
+
+
+@patch("tts._synthesize_edge", side_effect=RuntimeError("edge 막힘"))
+def test_synthesize_raises_without_azure_key(edge, tmp_path):
     with pytest.raises(RuntimeError):
-        synthesize(["문장1"], str(tmp_path))
-
-
-@patch("tts._synthesize_one", new_callable=AsyncMock)
-def test_synthesize_creates_out_dir(mock_synth, tmp_path):
-    out_dir = tmp_path / "nested" / "dir"
-
-    synthesize(["문장1"], str(out_dir))
-
-    assert os.path.isdir(out_dir)
+        tts.synthesize(["안녕"], str(tmp_path / "n.mp3"))

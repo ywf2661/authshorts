@@ -32,4 +32,3 @@ def test_load_settings_reads_env(monkeypatch):
 
     assert settings.anthropic_api_key == "ak"
     assert settings.youtube_channel_id == "chan123"
-    assert settings.hf_api_key == ""

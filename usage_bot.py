@@ -13,11 +13,12 @@ import requests
 
 from config import Settings, load_settings
 from description_builder import build_description, hashtags
-from main import AD_PREFIX, parse_product_line
+from main import AD_PREFIX, TAIL, parse_product_line
 from script_writer import write_clip_script
-from tts import synthesize
+from tts import synthesize, timeline
 from video_assembler import (
-    BGM_DIR, assemble_video, bgm_credit, extract_frames, pick_bgm, probe_duration,
+    BGM_DIR, ad_events, bgm_credit, caption_events, clean_text, extract_frames, pick_bgm,
+    probe_duration, render, title_events, write_ass,
 )
 from youtube_api import refresh_access_token, upload_video
 
@@ -105,23 +106,30 @@ def _make_preview(settings: Settings, chat_id, video: dict, product: dict) -> No
         with open(path, "rb") as f:
             frames.append((t, f.read()))
     script = write_clip_script(settings, product, frames, duration)
+    segments = script["segments"]
 
-    audio_paths = synthesize(
-        script["sentences"], work_dir, settings.azure_speech_key, settings.azure_speech_region
-    )
+    texts = [clean_text(seg["text"]) for seg in segments]
+    narration = os.path.join(work_dir, "narration.mp3")
+    words = synthesize(texts, narration, settings.azure_speech_key, settings.azure_speech_region)
+    total = probe_duration(narration) + TAIL
+    timings = timeline(texts, words, total)
+
+    scenes = [{"start": t["start"], "end": t["end"], "clip": source, "offset": seg["start"]}
+              for seg, t in zip(segments, timings)]
+    # 첫 장면은 큰 훅 문구만, 나머지 장면은 팝 자막.
+    hook = script["hook_lines"]
+    events = title_events(hook, 0, timings[0]["end"]) if hook else []
+    for seg, t in list(zip(segments, timings))[1 if hook else 0:]:
+        events += caption_events(seg["text"], t["words"], t["start"], t["end"])
+    events += ad_events(total)
     bgm = pick_bgm()
-    final = assemble_video(
-        script["sentences"],
-        audio_paths,
-        [(source, start) for start in script["starts"]],
-        os.path.join(work_dir, "final.mp4"),
-        title_lines=script.get("cover_lines"),
-        emphasis=script.get("emphasis", []),
-        bgm_path=bgm[0] if bgm else None,
+    final = render(
+        scenes, narration, write_ass(events, os.path.join(work_dir, "subs.ass")),
+        os.path.join(work_dir, "final.mp4"), bgm_path=bgm[0] if bgm else None,
     )
     bgm_name = os.path.splitext(os.path.basename(bgm[0]))[0] if bgm else ""
 
-    summary = " ".join(script["sentences"][:2])
+    summary = " ".join(texts[:2])
     keyboard = {"inline_keyboard": [[
         {"text": "✅ 업로드", "callback_data": "upload"},
         {"text": "❌ 취소", "callback_data": "cancel"},

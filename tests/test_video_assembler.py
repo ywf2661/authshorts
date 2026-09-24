@@ -1,149 +1,82 @@
-import os
-import subprocess
 from unittest.mock import patch
 
 import pytest
 
-import video_assembler
-from video_assembler import CAPTION_FONT, FOCUS_LINES, TITLE_FONT, assemble_video, pick_bgm
+import video_assembler as va
 
 
-def _ffmpeg_cmds(mock_run):
-    return [c.args[0] for c in mock_run.call_args_list]
+def test_marked_words_tracks_emphasis_across_words():
+    assert va.marked_words("올겨울 *이거* 없으면 *대망의 1위*는") == [
+        ("올겨울", False), ("이거", True), ("없으면", False), ("대망의", True), ("1위는", True),
+    ]
+    assert va.clean_text("*이거* 없으면") == "이거 없으면"
 
 
-def _graph(cmd):
-    return cmd[cmd.index("-filter_complex") + 1]
-
-
-@pytest.fixture
-def mock_run():
-    # 문장 오디오 길이는 4초로 고정 — ffprobe를 실제로 돌리지 않는다.
-    with patch("video_assembler.subprocess.run") as run, \
-            patch("video_assembler.probe_duration", return_value=4.0):
-        yield run
-
-
-def test_assemble_video_raises_on_length_mismatch(mock_run, tmp_path):
-    with pytest.raises(ValueError, match="일치하지 않음"):
-        assemble_video(
-            ["문장1", "문장2"], ["a1.mp3"], ["i1.png", "i2.png"], str(tmp_path / "out.mp4")
-        )
-
-    mock_run.assert_not_called()
-
-
-def test_assemble_video_builds_one_segment_per_sentence_and_concats(mock_run, tmp_path):
-    out_path = str(tmp_path / "out.mp4")
-
-    result = assemble_video(
-        ["문장1", "문장2"], ["a1.mp3", "a2.mp3"], ["i1.png", "i2.png"], out_path
+def test_caption_events_pop_one_or_two_words_with_yellow_emphasis():
+    events = va.caption_events(
+        "붙이기만 하면 *외풍*이 막혀요",
+        [(1.0, 1.4), (1.4, 1.6), (1.6, 2.0), (2.0, 2.5)], 0.8, 3.0,
     )
 
-    assert result == out_path
-    # 세그먼트 2개 + concat 1개 = ffmpeg 총 3번 호출
-    assert mock_run.call_count == 3
-    for call in mock_run.call_args_list:
-        assert call.kwargs["check"] is True
+    assert len(events) == 2  # 8자 이내로 1~2어절: "붙이기만 하면" / "외풍이 막혀요"
+    assert events[0].startswith("Dialogue: 0,0:00:00.80,0:00:01.60,Cap")
+    assert "붙이기만 하면" in events[0]
+    assert va.YELLOW + "}외풍이" in events[1]
+    assert events[1].split(",")[1] == "0:00:01.60"
+    assert events[-1].split(",")[2] == "0:00:03.00"
 
 
-def test_assemble_video_uses_color_background_when_image_missing(mock_run, tmp_path):
-    assemble_video(["문장1"], ["a1.mp3"], [None], str(tmp_path / "out.mp4"))
+def test_title_events_draw_white_outer_outline_under_every_line():
+    events = va.title_events(["안 쓰면", "고생하는"], 0, 2)
 
-    assert "lavfi" in _ffmpeg_cmds(mock_run)[0]
-
-
-def test_captions_show_one_line_at_a_time_split_by_length(mock_run, tmp_path):
-    # OpenAI's -- an apostrophe that would have broken the old text='...' escaping.
-    assemble_video(["OpenAI's new model"], ["a1.mp3"], ["i1.png"], str(tmp_path / "out.mp4"))
-
-    # 12자 줄바꿈 → 두 줄을 차례로: 12자 + 5자 = 17자, 4초를 글자 수 비율로 나눔
-    assert (tmp_path / "caption_1_0.txt").read_text(encoding="utf-8") == "OpenAI's new"
-    assert (tmp_path / "caption_1_1.txt").read_text(encoding="utf-8") == "model"
-    graph = _graph(_ffmpeg_cmds(mock_run)[0])
-    assert graph.count(f"fontfile='{CAPTION_FONT}'") == 2
-    assert "enable='between(t,0.00,2.82)'" in graph
-    assert "enable='between(t,2.82,4.00)'" in graph
-    assert "text='" not in graph
+    assert len(events) == 4
+    assert all(r"\3c" + va.WHITE in e for e in events[0::2])
+    assert va.YELLOW in events[1] and va.WHITE in events[3].split(r"\c")[-1]
 
 
-def test_assemble_video_prints_stderr_and_reraises_on_ffmpeg_failure(mock_run, tmp_path, capsys):
-    mock_run.side_effect = subprocess.CalledProcessError(
-        1, ["ffmpeg"], stderr=b"ffmpeg exploded"
-    )
+def test_write_ass_uses_bundled_font_names(tmp_path):
+    path = va.write_ass(va.ad_events(10), str(tmp_path / "s.ass"))
+    text = open(path, encoding="utf-8").read()
 
-    with pytest.raises(subprocess.CalledProcessError):
-        assemble_video(["문장1"], ["a1.mp3"], ["i1.png"], str(tmp_path / "out.mp4"))
-
-    assert "ffmpeg exploded" in capsys.readouterr().out
+    assert "PlayResX: 1080" in text and "PlayResY: 1920" in text
+    assert "NanumGothicExtraBold" in text and "Black Han Sans" in text
+    assert text.count("쿠팡 파트너스") == 2  # 첫 2초 + 마지막 2초
 
 
-def test_assemble_video_cuts_clip_segment_and_drops_original_audio(mock_run, tmp_path):
-    assemble_video(["문장1"], ["a1.mp3"], [("src.mp4", 3.5)], str(tmp_path / "out.mp4"))
+def test_cuts_split_photo_scenes_into_two_second_pieces_and_rotate():
+    scenes = [
+        {"start": 0.0, "end": 4.5, "photos": ["a.jpg", "b.jpg"], "bg": "#fff"},
+        {"start": 4.5, "end": 6.0, "photos": ["a.jpg", "b.jpg"], "bg": "#fff"},
+        {"start": 6.0, "end": 9.0, "clip": "v.mp4", "offset": 2.0},
+    ]
 
-    cmd = _ffmpeg_cmds(mock_run)[0]
-    assert cmd[cmd.index("-ss") + 1] == "3.5"
-    assert cmd[cmd.index("-ss") + 3] == "src.mp4"
-    assert "tpad=stop_mode=clone" in _graph(cmd)
-    assert cmd[cmd.index("-map") + 1] == "[vout]"
-    assert cmd[cmd.index("-map") + 3] == "1:a"
+    cuts = va._cuts(scenes)
 
-
-def test_title_scene_shows_only_title_and_later_scenes_only_captions(mock_run, tmp_path):
-    assemble_video(
-        ["문장1", "문장2"], ["a1.mp3", "a2.mp3"], ["i1.png", "i2.png"],
-        str(tmp_path / "out.mp4"), title_lines=["N통째 쓴", "쿠팡필수템"],
-    )
-
-    first, second = _graph(_ffmpeg_cmds(mock_run)[0]), _graph(_ffmpeg_cmds(mock_run)[1])
-    assert TITLE_FONT in first and CAPTION_FONT not in first
-    assert TITLE_FONT not in second and CAPTION_FONT in second
-    assert (tmp_path / "title_1.txt").read_text(encoding="utf-8") == "쿠팡필수템"
+    assert [(round(s, 2), round(e, 2), k) for _, s, e, k in cuts] == [
+        (0.0, 1.5, 0), (1.5, 3.0, 1), (3.0, 4.5, 2), (4.5, 6.0, 3), (6.0, 9.0, 0),
+    ]
 
 
-def test_emphasis_adds_zoom_and_focus_lines_only_to_chosen_sentence(mock_run, tmp_path):
-    assemble_video(
-        ["문장1", "문장2"], ["a1.mp3", "a2.mp3"], ["i1.png", "i2.png"],
-        str(tmp_path / "out.mp4"), emphasis=[1],
-    )
+@patch("video_assembler.subprocess.run")
+def test_render_builds_cuts_then_one_final_pass(run, tmp_path):
+    scenes = [
+        {"start": 0.0, "end": 1.0, "photos": ["p.jpg"], "bg": "#FFD93D", "blur": True},
+        {"start": 1.0, "end": 2.5, "photos": ["p.jpg"], "bg": "#FFD93D", "focus": True},
+    ]
+    out = str(tmp_path / "final.mp4")
 
-    first, second = _ffmpeg_cmds(mock_run)[:2]
-    assert "zoompan" not in _graph(first) and FOCUS_LINES[0] not in first
-    assert "zoompan" in _graph(second) and "overlay" in _graph(second)
-    assert FOCUS_LINES[0] in second and FOCUS_LINES[1] in second
+    va.render(scenes, "n.mp3", str(tmp_path / "s.ass"), out, bgm_path="b.mp3",
+              sfx=[(1.0, "ding.mp3")])
 
-
-def test_bgm_is_mixed_after_concat(mock_run, tmp_path):
-    out_path = str(tmp_path / "out.mp4")
-    assemble_video(["문장1"], ["a1.mp3"], ["i1.png"], out_path, bgm_path="song.mp3")
-
-    concat, mix = _ffmpeg_cmds(mock_run)[1:]
-    assert concat[-1].endswith("joined.mp4")
-    assert "song.mp3" in mix and "amix" in _graph(mix) and mix[-1] == out_path
-
-
-def test_pick_bgm_returns_track_with_credit():
-    track, credit = pick_bgm()
-
-    assert track.endswith(".mp3") and os.path.exists(track)
-    assert "Kevin MacLeod" in credit and "creativecommons.org" in credit
-
-
-def test_bundled_assets_exist():
-    for path in [CAPTION_FONT, TITLE_FONT, *FOCUS_LINES]:
-        assert os.path.exists(path), path
-    assert os.path.isdir(video_assembler.BGM_DIR)
-
-
-def test_every_title_line_gets_white_outer_border(mock_run, tmp_path):
-    assemble_video(
-        ["문장1"], ["a1.mp3"], ["i1.png"], str(tmp_path / "out.mp4"),
-        title_lines=["N통째 쓴", "쿠팡필수템", "TOP 1"],
-    )
-
-    graph = _graph(_ffmpeg_cmds(mock_run)[0])
-    for j in range(3):
-        title_file = os.path.join(str(tmp_path), f"title_{j}.txt")
-        # 줄마다: 흰 바깥 테두리 1번 + 검은 테두리 글씨 1번
-        assert graph.count(f"textfile='{title_file}'") == 2
-    assert graph.count("bordercolor=white") == 3
+    cmds = [c.args[0] for c in run.call_args_list]
+    assert len(cmds) == 4  # 컷 2개 + concat + 최종
+    assert "boxblur" in cmds[0][cmds[0].index("-filter_complex") + 1]
+    assert any(va.FOCUS_LINES[0] == a for a in cmds[1])
+    assert cmds[0][cmds[0].index("-frames:v") + 1] == "30"
+    assert cmds[1][cmds[1].index("-frames:v") + 1] == "45"
+    final = cmds[-1]
+    graph = final[final.index("-filter_complex") + 1]
+    assert "subtitles=filename='" in graph and ":fontsdir='fonts'" in graph
+    assert "adelay=1000|1000" in graph and "[3:a]" in graph  # 효과음은 BGM 다음 입력
+    assert "amix=inputs=3" in graph and "loudnorm=I=-14" in graph
+    assert run.call_args_list[-1].kwargs["cwd"] == va.ROOT_DIR
