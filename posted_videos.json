@@ -1,1 +1,29 @@
-[]
+[
+ {
+  "number": 1,
+  "date": "2026-09-26",
+  "topic": "택배 정리템",
+  "url": "https://youtu.be/9IjUbn0RtYg",
+  "products": [
+   {
+    "name": "롤러형 송장 지우개",
+    "label": "송장지우개",
+    "link": "https://link.coupang.com/a/hnbe3RxmH6"
+   },
+   {
+    "name": "안전 박스 커터",
+    "label": "안전박스커터",
+    "link": "https://link.coupang.com/a/hnbmGjw5dc"
+   },
+   {
+    "name": "스티커 제거제",
+    "label": "스티커제거제",
+    "link": "https://link.coupang.com/a/hnbqf8XwRM"
+   }
+  ],
+  "style": {
+   "hook": "result",
+   "palette": 1
+  }
+ }
+]
