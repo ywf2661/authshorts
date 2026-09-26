@@ -83,7 +83,8 @@ def _ask_claude(settings: Settings, content, schema: dict) -> dict:
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(
         model=MODEL,
-        max_tokens=4000,
+        # Sonnet 5는 thinking이 기본으로 켜져 있어 생각에도 토큰을 쓴다 — 4000이면 재요청 때 본문 없이 끊겼다.
+        max_tokens=16000,
         messages=[{"role": "user", "content": content}],
         output_config={"format": {"type": "json_schema", "schema": schema}},
     )
@@ -194,7 +195,12 @@ def write_top_script(
         extra = ""
         if problems:
             extra = "\n\n직전 대본이 아래 검사에 걸렸다. 고쳐서 다시 써라:\n- " + "\n- ".join(problems)
-        script = _ask_claude(settings, content + [{"type": "text", "text": prompt + extra}], TOP_SCHEMA)
+        try:
+            script = _ask_claude(settings, content + [{"type": "text", "text": prompt + extra}], TOP_SCHEMA)
+        except ValueError as e:  # 빈 응답·거절 — 봇을 죽이지 말고 재요청, 또 실패하면 스킵+알림
+            problems = [str(e)[:200]]
+            print("대본 응답 오류:", problems)
+            continue
         problems = check_top_script(script, products, topic)
         if not problems:
             return script

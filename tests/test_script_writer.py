@@ -123,6 +123,18 @@ def test_write_top_script_gives_up_after_second_failure(ask):
 
 
 @patch("script_writer._ask_claude")
+def test_write_top_script_turns_empty_responses_into_rejection(ask):
+    # 실제 사고: 재요청 응답이 max_tokens로 비어서 ValueError가 봇을 죽였다 → 스킵+알림이어야 함
+    ask.side_effect = [_good_script() | {"beats": []}, ValueError("Claude 응답이 JSON이 아님 (stop_reason=max_tokens)")]
+
+    with pytest.raises(ScriptRejected, match="max_tokens"):
+        write_top_script(_settings(), TOPIC, PRODUCTS, [JPEG], "result")
+
+    ask.side_effect = [ValueError("빈 응답"), _good_script()]
+    assert write_top_script(_settings(), TOPIC, PRODUCTS, [JPEG], "result") == _good_script()
+
+
+@patch("script_writer._ask_claude")
 def test_write_clip_script_validates_start_range(ask):
     ask.return_value = {"title": "t", "hook_lines": ["훅"], "keywords": [],
                         "segments": [{"start": 0, "text": "첫 장면"}, {"start": 99, "text": "끝"}]}
