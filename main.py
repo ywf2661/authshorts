@@ -52,16 +52,18 @@ def parse_product_line(line: str) -> dict | None:
 
 
 def load_bundles(path: str) -> list[dict]:
-    """'[주제]' 줄로 시작하는 묶음들을 파일 순서대로 읽는다. 묶음 안 적은 순서 = 1위 → N위."""
+    """'[주제]' 또는 '[주제 | 유튜브 제목]' 줄로 시작하는 묶음들을 파일 순서대로 읽는다.
+    묶음 안 적은 순서 = 1위 → N위. 제목이 없으면 Claude가 만든 제목을 쓴다."""
     bundles, current = [], None
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            topic = re.fullmatch(r"\[(.+)\]", line)
-            if topic:
-                current = {"topic": topic.group(1).strip(), "products": []}
+            header = re.fullmatch(r"\[(.+)\]", line)
+            if header:
+                topic, _, title = (part.strip() for part in header.group(1).partition("|"))
+                current = {"topic": topic, "title": title, "products": []}
                 bundles.append(current)
                 continue
             product = parse_product_line(line)
@@ -267,7 +269,7 @@ def run() -> str | None:
     if bgm and bgm[1]:
         description += "\n\n" + bgm[1]  # CC BY 음악 저작자 표시
     video_url = upload_video(
-        settings, access_token, video_path, AD_PREFIX + script["title"], description,
+        settings, access_token, video_path, AD_PREFIX + (bundle["title"] or script["title"]), description,
         tags=hashtags(script["keywords"]), synthetic=False,
     )
 

@@ -49,6 +49,17 @@ def test_load_bundles_groups_by_topic_and_drops_bad_ones(tmp_path):
     assert [p["productName"] for p in bundles[0]["products"]] == ["난방텐트", "극세사 담요", "문풍지"]
     assert bundles[0]["products"][0]["images"] == ["http://a1.jpg", "http://a2.jpg"]
     assert bundles[1]["products"][1]["point"] == ""
+    assert bundles[0]["title"] == ""
+
+
+def test_load_bundles_reads_optional_title(tmp_path):
+    path = tmp_path / "products.txt"
+    path.write_text(BUNDLE_TEXT.replace("[3만원 이하 방한템]", "[방한템 | 올겨울 외풍 끝내는 방한템 TOP3]"),
+                    encoding="utf-8")
+
+    bundle = main.load_bundles(str(path))[0]
+
+    assert (bundle["topic"], bundle["title"]) == ("방한템", "올겨울 외풍 끝내는 방한템 TOP3")
 
 
 def test_real_products_file_parses():
@@ -138,6 +149,16 @@ def test_run_uploads_first_bundle_and_records_it(env):
     env.reset_mock()
     assert main.run() is None
     env.write_top_script.assert_not_called()
+
+
+def test_run_prefers_title_written_in_products_file(env, tmp_path):
+    (tmp_path / "products.txt").write_text(
+        BUNDLE_TEXT.replace("[3만원 이하 방한템]", "[방한템 | 올겨울 외풍 끝내는 방한템 TOP3]"), encoding="utf-8"
+    )
+
+    main.run()
+
+    assert env.upload_video.call_args.args[3] == "[광고] 올겨울 외풍 끝내는 방한템 TOP3"
 
 
 def test_run_skips_bundle_with_missing_point(env):
