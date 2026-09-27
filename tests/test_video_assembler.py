@@ -80,3 +80,28 @@ def test_render_builds_cuts_then_one_final_pass(run, tmp_path):
     assert "adelay=1000|1000" in graph and "[3:a]" in graph  # 효과음은 BGM 다음 입력
     assert "amix=inputs=3" in graph and "loudnorm=I=-14" in graph
     assert run.call_args_list[-1].kwargs["cwd"] == va.ROOT_DIR
+
+
+@patch("video_assembler.subprocess.run")
+def test_render_mixes_original_clip_sound_under_narration(run, tmp_path):
+    run.return_value.stdout = "1\n"  # ffprobe: 소리 스트림 있음
+    scenes = [
+        {"start": 0.0, "end": 1.0, "clip": "a.mp4", "offset": 0.5},
+        {"start": 1.0, "end": 2.0, "photos": ["p.jpg"], "bg": "#fff"},
+    ]
+
+    va.render(scenes, "n.mp3", str(tmp_path / "s.ass"), str(tmp_path / "final.mp4"), bgm_path="b.mp3")
+
+    cmds = [c.args[0] for c in run.call_args_list if c.args[0][0] == "ffmpeg"]
+    clip_sound, photo_sound = cmds[1], cmds[3]
+    assert clip_sound[clip_sound.index("-ss") + 1] == "0.50" and "0:a:0" in clip_sound
+    assert "anullsrc=r=48000:cl=stereo" in photo_sound  # 사진 컷은 무음으로 길이만 맞춘다
+    final = cmds[-1]
+    graph = final[final.index("-filter_complex") + 1]
+    assert final.count("-i") == 4  # 영상 + 나레이션 + BGM + 원본 소리
+    assert f"[3:a]volume={va.ORIGINAL_VOLUME}[o]" in graph and "amix=inputs=3" in graph
+
+
+def test_ad_label_sits_high_enough_to_dodge_shorts_bottom_ui():
+    assert all(f"\\pos(540,{y})" in "".join(va.ad_events(10)) for y in (va.AD_Y, va.AD_Y + 52))
+    assert va.AD_Y < va.PHOTO_Y

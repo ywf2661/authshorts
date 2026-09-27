@@ -107,6 +107,7 @@ def test_upload_button_uploads_with_ad_title_once(tg, download, refresh, upload)
     assert "Sneaky Snitch" in upload.call_args.args[4]  # 음악 저작자 표시
     assert "#자취템" in upload.call_args.args[4]
     assert upload.call_args.kwargs["tags"] == ["쇼츠", "자취템"]
+    assert upload.call_args.kwargs["synthetic"] is False  # 직접 찍은 영상에 AI 합성 표시 금지
     assert "https://youtu.be/v" in _sent_texts(tg)[-1]
 
 

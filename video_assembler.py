@@ -16,13 +16,15 @@ BGM_DIR = os.path.join(ROOT_DIR, "bgm")
 SFX_DIR = os.path.join(ROOT_DIR, "sfx")
 BGM_VOLUME = 0.18  # 나레이션보다 약 16dB 작게 — 들리되 목소리를 가리지 않는 선 (실측)
 SFX_VOLUME = 0.6
+ORIGINAL_VOLUME = 0.3  # 실사용 영상의 원래 소리(버튼·뚜껑 소리) — 나레이션 아래로 작게
 
 W, H, FPS = 1080, 1920, 30
 PHOTO_Y = 420  # 1:1 상품 사진(1080) 위치 — 위는 헤더·순위, 아래는 광고 표기
 MAX_CUT = 2.0  # 사진 장면은 2초 이하 컷으로 나눠 컷마다 움직임을 바꾼다
 
 # 화면 좌표 (PlayRes = 1080x1920)
-HEADER_Y, CTA_Y, BADGE_Y, CAPTION_Y, AD_Y = 170, 320, 510, 1330, 1540
+# 광고 표기는 헤더 바로 아래 — 쇼츠 하단 UI(채널명·제목)에 가리지 않게. 훅 제목은 정중앙보다 위로(상품을 덜 가림).
+HEADER_Y, AD_Y, CTA_Y, BADGE_Y, CAPTION_Y, HOOK_Y = 170, 250, 320, 510, 1330, 600
 CAPTION_MAX_CHARS = 8
 YELLOW = "&H00E4FF&"  # ASS 색은 BGR — #FFE400
 WHITE = "&HFFFFFF&"
@@ -70,7 +72,7 @@ def event(start: float, end: float, style: str, text: str, y: int, tags: str = "
     return f"Dialogue: {layer},{_ts(start)},{_ts(end)},{style},,0,0,0,,{{\\pos(540,{y}){tags}}}{text}"
 
 
-def title_events(lines: list[str], start: float, end: float, y_center: int = H // 2) -> list[str]:
+def title_events(lines: list[str], start: float, end: float, y_center: int = HOOK_Y) -> list[str]:
     """큰 제목 — 노란 글씨(여러 줄이면 마지막 줄은 흰 글씨), 검은 테두리 + 흰 바깥 테두리."""
     size = min(170, 960 // max(len(line) for line in lines))  # 가장 긴 줄이 화면 폭에 맞도록
     line_h = int(size * 1.15)
@@ -112,7 +114,7 @@ def ad_events(duration: float) -> list[str]:
     events = []
     for start, end in ((0, min(2, duration)), (max(0, duration - 2), duration)):
         for j, line in enumerate(AD_LINES):
-            events.append(event(start, end, "Small", line, AD_Y + j * 50))
+            events.append(event(start, end, "Small", line, AD_Y + j * 52))
     return events
 
 
@@ -131,7 +133,7 @@ def write_ass(events: list[str], path: str) -> str:
         style.format(name="Cap", font=CAPTION_FONT, size=84, bord=7),
         style.format(name="Title", font=TITLE_FONT, size=150, bord=11),
         style.format(name="Head", font=TITLE_FONT, size=84, bord=8),
-        style.format(name="Small", font=CAPTION_FONT, size=38, bord=4),
+        style.format(name="Small", font=CAPTION_FONT, size=44, bord=5),
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -178,12 +180,30 @@ def _photo_cut_cmd(photo: str, bg: str, frames: int, preset: int, blur: bool, fo
 
 
 def _clip_cut_cmd(path: str, offset: float, frames: int, out: str):
-    # 남은 영상이 장면보다 짧으면 마지막 프레임을 멈춰서 채운다. 원본 소리는 버린다.
+    # 남은 영상이 장면보다 짧으면 마지막 프레임을 멈춰서 채운다. 원본 소리는 _original_audio_cmd가 따로 받는다.
     vf = ("tpad=stop_mode=clone:stop_duration=60,"
           f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
           f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={FPS}")
     return ["ffmpeg", "-y", "-ss", f"{offset:.2f}", "-i", path, "-vf", vf, "-map", "0:v",
             *_cut_encode(frames), out]
+
+
+def _has_audio(path: str) -> bool:
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
+         "-of", "csv=p=0", path], capture_output=True, text=True,
+    )
+    return bool(result.stdout.strip())
+
+
+def _original_audio_cmd(path: str | None, offset: float, frames: int, out: str):
+    """컷 길이에 딱 맞춘 원본 소리 조각 — 소리가 없거나 사진 컷이면 무음."""
+    dur = f"{frames / FPS:.3f}"
+    if path is None:
+        return ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", dur, out]
+    # 남은 영상이 짧으면(마지막 프레임 정지 구간) 무음으로 채운다.
+    return ["ffmpeg", "-y", "-ss", f"{offset:.2f}", "-i", path, "-map", "0:a:0",
+            "-af", f"apad,atrim=end={dur}", "-ar", "48000", "-ac", "2", "-t", dur, out]
 
 
 def _cut_encode(frames: int) -> list[str]:
@@ -218,7 +238,9 @@ def render(
     os.makedirs(out_dir, exist_ok=True)
     duration = scenes[-1]["end"]
 
-    cut_paths = []
+    # 실사용 영상(usage_bot)이면 원래 소리를 컷마다 잘라 한 줄로 이어 붙여 작게 깐다.
+    clips_with_audio = {c for c in {s.get("clip") for s in scenes} if c and _has_audio(c)}
+    cut_paths, sound_paths = [], []
     for i, (scene, s, e, k) in enumerate(_cuts(scenes)):
         frames = round(e * FPS) - round(s * FPS)  # 누적 반올림 — 컷이 많아도 소리와 어긋나지 않는다
         if frames <= 0:
@@ -229,9 +251,16 @@ def render(
             cmd = _photo_cut_cmd(photos[k % len(photos)], scene["bg"], frames, k,
                                  scene.get("blur", False), scene.get("focus", False), path)
         else:
-            cmd = _clip_cut_cmd(scene["clip"], scene["offset"] + (s - scene["start"]), frames, path)
+            offset = scene["offset"] + (s - scene["start"])
+            cmd = _clip_cut_cmd(scene["clip"], offset, frames, path)
         _run_ffmpeg(cmd)
         cut_paths.append(path)
+        if clips_with_audio:
+            sound = os.path.join(out_dir, f"cut_{i:03d}.wav")
+            clip = scene.get("clip")
+            _run_ffmpeg(_original_audio_cmd(clip if clip in clips_with_audio else None,
+                                            scene.get("offset", 0) + (s - scene["start"]), frames, sound))
+            sound_paths.append(sound)
 
     concat_list = os.path.join(out_dir, "concat_list.txt")
     with open(concat_list, "w", encoding="utf-8") as f:
@@ -251,6 +280,16 @@ def render(
         ms = round(t * 1000)
         audio.append(f"[{idx}:a]adelay={ms}|{ms},volume={SFX_VOLUME}[s{idx}]")
         mix.append(f"[s{idx}]")
+    if sound_paths:
+        sound_list = os.path.join(out_dir, "sound_list.txt")
+        with open(sound_list, "w", encoding="utf-8") as f:
+            f.writelines(f"file '{p}'\n" for p in sound_paths)
+        original = os.path.join(out_dir, "original.wav")
+        _run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", sound_list, "-c", "copy", original])
+        idx = inputs.count("-i")  # 다음 입력 번호 = 지금까지 붙인 입력 개수
+        inputs += ["-i", original]
+        audio.append(f"[{idx}:a]volume={ORIGINAL_VOLUME}[o]")
+        mix.append("[o]")
     # subtitles 필터는 윈도 경로(C:)의 콜론을 못 읽는다 — 저장소 폴더에서 상대경로로 넘긴다.
     ass_rel = os.path.relpath(os.path.abspath(ass_path), ROOT_DIR).replace("\\", "/")
     graph = ";".join([

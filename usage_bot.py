@@ -162,7 +162,8 @@ def _upload_preview(settings: Settings, chat_id, message: dict) -> None:
         description += "\n\n" + credit  # CC BY 음악 저작자 표시
     access_token = refresh_access_token(settings)
     video_url = upload_video(
-        settings, access_token, path, AD_PREFIX + preview["title"], description, tags=preview["tags"]
+        settings, access_token, path, AD_PREFIX + preview["title"], description, tags=preview["tags"],
+        synthetic=False,  # 사용자가 직접 찍은 실사용 영상 — AI 합성 표시 대상 아님
     )
     _send(settings, chat_id, f"✅ 업로드 완료: {video_url}")
 
