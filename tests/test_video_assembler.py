@@ -41,6 +41,7 @@ def test_write_ass_uses_bundled_font_names(tmp_path):
     assert "PlayResX: 1080" in text and "PlayResY: 1920" in text
     assert "NanumGothicExtraBold" in text and "Black Han Sans" in text
     assert text.count("쿠팡 파트너스") == 2  # 첫 2초 + 마지막 2초
+    assert r"0:00:00.00,0:00:10.00,Small,,0,0,0,,{\pos(540,250)}광고" in text  # '광고'는 영상 내내
 
 
 def test_cuts_split_photo_scenes_into_two_second_pieces_and_rotate():
@@ -55,6 +56,17 @@ def test_cuts_split_photo_scenes_into_two_second_pieces_and_rotate():
     assert [(round(s, 2), round(e, 2), k) for _, s, e, k in cuts] == [
         (0.0, 1.5, 0), (1.5, 3.0, 1), (3.0, 4.5, 2), (4.5, 6.0, 3), (6.0, 9.0, 0),
     ]
+
+
+def test_cuts_split_long_clip_scenes_and_zoom_every_other_piece():
+    scenes = [{"start": 0.0, "end": 5.0, "clip": "v.mp4", "offset": 0.0},
+              {"start": 5.0, "end": 7.0, "clip": "v.mp4", "offset": 10.0}]
+
+    cuts = va._cuts(scenes)
+
+    assert [(round(s, 2), round(e, 2), k) for _, s, e, k in cuts] == [(0.0, 2.5, 0), (2.5, 5.0, 1), (5.0, 7.0, 0)]
+    assert "crop=iw/1.12:ih/1.12" in " ".join(va._clip_cut_cmd("v.mp4", 2.5, 75, "o.mp4", va.CLIP_PUNCH))
+    assert "crop" not in " ".join(va._clip_cut_cmd("v.mp4", 0, 75, "o.mp4"))
 
 
 @patch("video_assembler.subprocess.run")
@@ -99,7 +111,8 @@ def test_render_mixes_original_clip_sound_under_narration(run, tmp_path):
     final = cmds[-1]
     graph = final[final.index("-filter_complex") + 1]
     assert final.count("-i") == 4  # 영상 + 나레이션 + BGM + 원본 소리
-    assert f"[3:a]volume={va.ORIGINAL_VOLUME}[o]" in graph and "amix=inputs=3" in graph
+    assert f"[3:a]volume={va.ORIGINAL_VOLUME}[o0];[o0][nsc]{va.CLIP_DUCK}[o]" in graph  # 나레이션 동안 덕킹
+    assert "asplit=2[n][nsc]" in graph and "amix=inputs=3" in graph
 
 
 def test_ad_label_sits_high_enough_to_dodge_shorts_bottom_ui():

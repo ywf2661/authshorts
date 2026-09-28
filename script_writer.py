@@ -208,17 +208,39 @@ def write_top_script(
     raise ScriptRejected("; ".join(problems))
 
 
-CLIP_PROMPT = """위 이미지들은 쿠팡 상품 "{product_name}"의 실제 사용 영상(총 {duration:.0f}초)에서
+# 영상마다 훅·구성을 바꿔 '템플릿 대량 생산' 인상(YouTube inauthentic content 정책)을 피한다.
+CLIP_HOOK_RULES = {
+    "result": "결과형 — 쓰고 난 뒤 달라진 모습부터 말한다 (예: '이렇게 깔끔해져요').",
+    "loss": "손실형 — 안 쓰면 손해·고생 (예: '이거 모르면 계속 고생').",
+    "secret": "비밀형 — 아는 사람만 쓰는 (예: '살림 고수들만 아는').",
+    "question": "질문형 — 시청자의 불편을 묻는다 (예: '아직도 손으로 닦아요?').",
+}
+CLIP_ORDERS = {
+    "result_first": "결과(애프터) → 문제 → 사용 과정 → 디테일 → 애프터 → 행동 유도",
+    "problem_first": "문제 상황 → 사용 과정 → 결과 공개 → 디테일 → 행동 유도",
+    "sound_first": "개봉·설치 소리 클로즈업 → 결과 → 사용 과정 → 디테일 → 행동 유도",
+}
+CLIP_SEGMENTS = (5, 12)  # 프롬프트는 7~10개
+CLIP_CHARS = (130, 210)  # 공백 제외. 프롬프트는 150~195자(+20% 속도로 약 24~31초)
+
+CLIP_PROMPT = """위 이미지들은 쿠팡 상품 "{product_name}"을 직접 쓰며 찍은 영상(총 {duration:.0f}초, 목소리 없음·원래 소리 있음)에서
 균등 간격으로 뽑은 프레임이고, 각 이미지 앞의 t=숫자는 그 프레임의 영상 내 시각(초)이다.
 
-이 영상으로 "요즘 잇템"을 소개하는 20~30초 분량의 한국어 나레이션 쇼츠를 만든다.
-대본은 장면(segment) 4~8개이고, 장면 1개 = 한 호흡(25자 이내)이다.
-장면마다 대사와 가장 잘 어울리는 화면의 시작 시각(start, 초)을 위 t 값 중에서 골라라.
-흔들리거나 흐리거나 아무것도 안 보이는 프레임은 고르지 마라. 가능하면 서로 다른 장면을 골라라.
-첫 장면은 스크롤을 멈추게 하는 후킹 대사(15자 이내 — 2초 안에 끝나게, 상품명으로 시작하지 말 것), 마지막 장면은 "프로필 링크에서 확인해보세요" 같은 행동 유도.
-장면마다 핵심 단어 하나를 *별표*로 감싼다 (화면에서 노랑 강조, 없어도 됨).
-화면에 보이는 것과 상품명에 드러난 것 이외의 스펙·수치·효능은 지어내지 마라. 가격은 말하지 마라.
-hook_lines: 첫 화면 가운데 큰 글씨 2~3줄 (줄당 7자 이내, 예: ["N통째 쓴", "쿠팡필수템"]).
+이 영상으로 24~31초짜리 한국어 나레이션 쇼츠를 만든다.
+대본은 장면(segment) 7~10개, 장면 1개 = 한 호흡(22자 이내). 전체 대사는 공백 빼고 150~195자.
+장면마다 대사와 가장 잘 맞는 화면의 시작 시각(start)을 위 t 값 중에서 고른다.
+- 흔들리거나 흐리거나 손·상품이 안 보이는 프레임은 고르지 않는다. 장면끼리 같은 구간을 다시 쓰지 않는다.
+- 첫 장면 start: 결과가 한눈에 보이거나 손이 상품을 쓰는 클로즈업. 영상 맨 앞이 그런 장면이 아니면 t=0을 고르지 않는다.
+- 마지막 장면 start: 첫 장면과 구도가 가장 비슷한 프레임 (끝이 처음으로 이어지게).
+구성 순서: {order}
+첫 장면 대사 = 훅. 15자 이내(2초 안), 상품명으로 시작하지 않는다. {hook_rule}
+마지막 장면 = 행동 유도. 매번 같은 문장이 아니라 이 상품에 맞게 (링크 위치는 '프로필 링크').
+화면에서 확인되는 이 상품만의 구체 정보(크기감·소재·구조·작동 방식·사용 순서 등)를 2개 이상 말한다.
+'요즘 잇템', '삶의 질 수직상승', '이건 진짜' 같은 어느 상품에나 붙는 상투구는 쓰지 않는다.
+장면마다 핵심 단어 하나만 *별표*로 감싼다 (화면에서 노랑 강조).
+화면에 보이는 것과 상품명에 드러난 것 이외의 스펙·수치·효능은 지어내지 않는다. 가격·할인·금액은 말하지 않는다.
+hook_lines: 첫 화면 위쪽 큰 글씨 정확히 2줄 (줄당 7자 이내), 훅 대사와 같은 결.
+title: 유튜브 제목 (40자 이내, 상품 종류가 드러나게).
 keywords: 해시태그 5~7개 — 상품 종류, 쓰는 상황, 타깃 시청자를 섞은 실제 검색어 (한국어, #·띄어쓰기 없이).
 """
 
@@ -243,23 +265,61 @@ CLIP_SCHEMA = {
 }
 
 
+def check_clip_script(script: dict, duration: float) -> list[str]:
+    """사용 영상 대본 검사 — 문제 목록 (비었으면 통과)."""
+    problems = []
+    segments = script.get("segments") or []
+    if not CLIP_SEGMENTS[0] <= len(segments) <= CLIP_SEGMENTS[1]:
+        problems.append(f"장면 {len(segments)}개 — 7~10개로 맞출 것")
+    if not 1 <= len(script.get("hook_lines") or []) <= 3:
+        problems.append("hook_lines는 2줄")
+    total = 0
+    for i, seg in enumerate(segments):
+        text = plain(seg.get("text", ""))
+        if not text:
+            problems.append(f"장면 {i}: 대사가 비었음")
+            continue
+        total += len(text.replace(" ", ""))
+        limit = 20 if i == 0 else MAX_BEAT_CHARS
+        if len(text) > limit:
+            problems.append(f"장면 {i}: 너무 김 ({len(text)}자) — {'훅은 15자' if i == 0 else '22자'} 이내로")
+        if not 0 <= seg.get("start", -1) < duration:
+            problems.append(f"장면 {i}: start가 영상 범위를 벗어남 ({seg.get('start')!r}, 영상 {duration:.0f}초)")
+        for price in PRICE.findall(text):
+            problems.append(f"장면 {i}: 가격·금액 언급 금지 — '{price}'")
+    if segments and not CLIP_CHARS[0] <= total <= CLIP_CHARS[1]:
+        problems.append(f"전체 대사 {total}자 — 공백 빼고 150~195자로 맞출 것")
+    return problems
+
+
 def write_clip_script(
-    settings: Settings, product: dict, frames: list[tuple[float, bytes]], duration: float
+    settings: Settings, product: dict, frames: list[tuple[float, bytes]], duration: float, style: dict
 ) -> dict:
-    """사용 영상 프레임을 보고 장면별 나레이션 대본을 쓴다 (실제 사용 영상이라 1인칭 허용)."""
+    """사용 영상 프레임을 보고 장면별 나레이션 대본을 쓴다 (실제 사용 영상이라 1인칭 허용).
+
+    검사에 걸리면 사유를 붙여 1회 재요청, 또 걸리면 ScriptRejected.
+    """
     content = []
     for t, jpeg in frames:
         content += [{"type": "text", "text": f"t={t}"}, _image_block(jpeg)]
-    content.append({"type": "text", "text": CLIP_PROMPT.format(
-        product_name=product["productName"], duration=duration)})
-    result = _ask_claude(settings, content, CLIP_SCHEMA)
+    prompt = CLIP_PROMPT.format(
+        product_name=product["productName"], duration=duration,
+        order=CLIP_ORDERS[style["order"]], hook_rule=CLIP_HOOK_RULES[style["hook"]],
+    )
 
-    segments = result["segments"]
-    if not 1 <= len(segments) <= 10:
-        raise ValueError(f"장면 개수가 허용 범위를 벗어남: {len(segments)}개")
-    for seg in segments:
-        if not plain(seg["text"]):
-            raise ValueError(f"빈 대사: {segments!r}")
-        if not 0 <= seg["start"] < duration:
-            raise ValueError(f"start가 영상 범위를 벗어남: {seg['start']!r} (영상 {duration}초)")
-    return result
+    problems = []
+    for _ in range(2):
+        extra = ""
+        if problems:
+            extra = "\n\n직전 대본이 아래 검사에 걸렸다. 고쳐서 다시 써라:\n- " + "\n- ".join(problems)
+        try:
+            script = _ask_claude(settings, content + [{"type": "text", "text": prompt + extra}], CLIP_SCHEMA)
+        except ValueError as e:
+            problems = [str(e)[:200]]
+            print("대본 응답 오류:", problems)
+            continue
+        problems = check_clip_script(script, duration)
+        if not problems:
+            return script
+        print("대본 검사 실패:", problems)
+    raise ScriptRejected("; ".join(problems))

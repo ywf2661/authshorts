@@ -16,11 +16,15 @@ BGM_DIR = os.path.join(ROOT_DIR, "bgm")
 SFX_DIR = os.path.join(ROOT_DIR, "sfx")
 BGM_VOLUME = 0.18  # 나레이션보다 약 16dB 작게 — 들리되 목소리를 가리지 않는 선 (실측)
 SFX_VOLUME = 0.6
-ORIGINAL_VOLUME = 0.3  # 실사용 영상의 원래 소리(버튼·뚜껑 소리) — 나레이션 아래로 작게
+ORIGINAL_VOLUME = 0.7  # 실사용 영상의 원래 소리(버튼·뚜껑 소리) — 문장 사이 쉼에서 살아나게 크게
+# 나레이션이 나오는 동안만 원래 소리를 약 -12dB 눌러 준다 (사이드체인 덕킹).
+CLIP_DUCK = "sidechaincompress=threshold=0.05:ratio=8:attack=10:release=300"
 
 W, H, FPS = 1080, 1920, 30
 PHOTO_Y = 420  # 1:1 상품 사진(1080) 위치 — 위는 헤더·순위, 아래는 광고 표기
 MAX_CUT = 2.0  # 사진 장면은 2초 이하 컷으로 나눠 컷마다 움직임을 바꾼다
+CLIP_MAX_CUT = 4.0  # 실사용 영상 장면은 4초를 넘으면 나눠서 뒤 조각을 확대 — 리서치: 컷 2.5초 안팎, 4초 넘으면 이탈
+CLIP_PUNCH = 1.12
 
 # 화면 좌표 (PlayRes = 1080x1920)
 # 광고 표기는 헤더 바로 아래 — 쇼츠 하단 UI(채널명·제목)에 가리지 않게. 훅 제목은 정중앙보다 위로(상품을 덜 가림).
@@ -90,7 +94,9 @@ def title_events(lines: list[str], start: float, end: float, y_center: int = HOO
     return events
 
 
-def caption_events(text: str, word_times: list[tuple[float, float]], start: float, end: float) -> list[str]:
+def caption_events(
+    text: str, word_times: list[tuple[float, float]], start: float, end: float, y: int = CAPTION_Y
+) -> list[str]:
     """어절 1~2개(8자 이내)씩 팝 자막. '*강조어*'는 노랑."""
     words = marked_words(text)
     chunks, i = [], 0
@@ -105,16 +111,15 @@ def caption_events(text: str, word_times: list[tuple[float, float]], start: floa
         text = " ".join(
             (rf"{{\c{YELLOW}}}{_safe(w)}{{\c{WHITE}}}" if emph else _safe(w)) for w, emph in chunk
         )
-        events.append(event(t0, t1, "Cap", text, CAPTION_Y, POP))
+        events.append(event(t0, t1, "Cap", text, y, POP))
     return events
 
 
 def ad_events(duration: float) -> list[str]:
-    """첫 2초와 마지막 2초에 광고 표기."""
-    events = []
+    """'광고'는 영상 내내, 수수료 문장은 첫·마지막 2초 (공정위 지침: 전체가 광고면 상시 또는 처음·중간·끝)."""
+    events = [event(0, duration, "Small", AD_LINES[0], AD_Y)]
     for start, end in ((0, min(2, duration)), (max(0, duration - 2), duration)):
-        for j, line in enumerate(AD_LINES):
-            events.append(event(start, end, "Small", line, AD_Y + j * 52))
+        events.append(event(start, end, "Small", AD_LINES[1], AD_Y + 52))
     return events
 
 
@@ -179,9 +184,11 @@ def _photo_cut_cmd(photo: str, bg: str, frames: int, preset: int, blur: bool, fo
             *_cut_encode(frames), out]
 
 
-def _clip_cut_cmd(path: str, offset: float, frames: int, out: str):
+def _clip_cut_cmd(path: str, offset: float, frames: int, out: str, zoom: float = 1.0):
     # 남은 영상이 장면보다 짧으면 마지막 프레임을 멈춰서 채운다. 원본 소리는 _original_audio_cmd가 따로 받는다.
+    # zoom > 1이면 가운데를 잘라 확대 — 같은 샷이 길게 이어질 때 화면 변화를 준다.
     vf = ("tpad=stop_mode=clone:stop_duration=60,"
+          + (f"crop=iw/{zoom}:ih/{zoom}," if zoom > 1 else "") +
           f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
           f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={FPS}")
     return ["ffmpeg", "-y", "-ss", f"{offset:.2f}", "-i", path, "-vf", vf, "-map", "0:v",
@@ -212,12 +219,12 @@ def _cut_encode(frames: int) -> list[str]:
 
 
 def _cuts(scenes: list[dict]) -> list[tuple[dict, float, float, int]]:
-    """사진 장면을 2초 이하 컷으로 나눈다 → (장면, 시작, 끝, 같은 사진 묶음 안에서 몇 번째 컷)."""
+    """사진은 2초, 영상은 4초 이하 컷으로 나눈다 → (장면, 시작, 끝, 같은 사진 묶음·장면 안에서 몇 번째 컷)."""
     cuts, counters = [], {}
     for scene in scenes:
         s, e = scene["start"], scene["end"]
-        n = max(1, math.ceil((e - s) / MAX_CUT - 1e-9)) if scene.get("photos") else 1
-        key = tuple(scene.get("photos", ()))
+        n = max(1, math.ceil((e - s) / (MAX_CUT if scene.get("photos") else CLIP_MAX_CUT) - 1e-9))
+        key = tuple(scene.get("photos", ())) or id(scene)
         for j in range(n):
             k = counters.get(key, 0)
             counters[key] = k + 1
@@ -227,7 +234,7 @@ def _cuts(scenes: list[dict]) -> list[tuple[dict, float, float, int]]:
 
 def render(
     scenes: list[dict], narration_path: str, ass_path: str, out_path: str,
-    bgm_path: str | None = None, sfx: list[tuple[float, str]] = (),
+    bgm_path: str | None = None, sfx: list[tuple[float, str]] = (), bgm_volume: float = BGM_VOLUME,
 ) -> str:
     """장면을 이어 붙이고 자막·나레이션·BGM·효과음을 한 번에 입힌다.
 
@@ -252,7 +259,7 @@ def render(
                                  scene.get("blur", False), scene.get("focus", False), path)
         else:
             offset = scene["offset"] + (s - scene["start"])
-            cmd = _clip_cut_cmd(scene["clip"], offset, frames, path)
+            cmd = _clip_cut_cmd(scene["clip"], offset, frames, path, CLIP_PUNCH if k % 2 else 1.0)
         _run_ffmpeg(cmd)
         cut_paths.append(path)
         if clips_with_audio:
@@ -269,11 +276,12 @@ def render(
     _run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", joined])
 
     inputs = ["-i", joined, "-i", os.path.abspath(narration_path)]
-    audio = ["[1:a]apad[n]"]
+    duck = bool(sound_paths)  # 원래 소리가 있으면 나레이션을 둘로 나눠 하나는 덕킹 신호로 쓴다
+    audio = ["[1:a]apad,aresample=48000,asplit=2[n][nsc]" if duck else "[1:a]apad[n]"]
     mix = ["[n]"]
     if bgm_path:
         inputs += ["-stream_loop", "-1", "-i", os.path.abspath(bgm_path)]
-        audio.append(f"[2:a]volume={BGM_VOLUME},afade=t=out:st={max(0.0, duration - 1.5):.2f}:d=1.5[b]")
+        audio.append(f"[2:a]volume={bgm_volume},afade=t=out:st={max(0.0, duration - 1.5):.2f}:d=1.5[b]")
         mix.append("[b]")
     for idx, (t, path) in enumerate(sfx, start=3 if bgm_path else 2):
         inputs += ["-i", os.path.abspath(path)]
@@ -288,7 +296,7 @@ def render(
         _run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", sound_list, "-c", "copy", original])
         idx = inputs.count("-i")  # 다음 입력 번호 = 지금까지 붙인 입력 개수
         inputs += ["-i", original]
-        audio.append(f"[{idx}:a]volume={ORIGINAL_VOLUME}[o]")
+        audio.append(f"[{idx}:a]volume={ORIGINAL_VOLUME}[o0];[o0][nsc]{CLIP_DUCK}[o]")
         mix.append("[o]")
     # subtitles 필터는 윈도 경로(C:)의 콜론을 못 읽는다 — 저장소 폴더에서 상대경로로 넘긴다.
     ass_rel = os.path.relpath(os.path.abspath(ass_path), ROOT_DIR).replace("\\", "/")

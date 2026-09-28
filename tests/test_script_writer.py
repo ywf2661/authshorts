@@ -134,13 +134,33 @@ def test_write_top_script_turns_empty_responses_into_rejection(ask):
     assert write_top_script(_settings(), TOPIC, PRODUCTS, [JPEG], "result") == _good_script()
 
 
-@patch("script_writer._ask_claude")
-def test_write_clip_script_validates_start_range(ask):
-    ask.return_value = {"title": "t", "hook_lines": ["훅"], "keywords": [],
-                        "segments": [{"start": 0, "text": "첫 장면"}, {"start": 99, "text": "끝"}]}
+STYLE = {"hook": "loss", "order": "result_first"}
 
-    with pytest.raises(ValueError, match="범위"):
-        write_clip_script(_settings(), {"productName": "케이스"}, [(0.0, JPEG)], 10.0)
+
+def _clip_script(texts, starts=None):
+    starts = starts or [float(i) for i in range(len(texts))]
+    return {"title": "t", "hook_lines": ["안 쓰면", "손해"], "keywords": [],
+            "segments": [{"start": s, "text": t} for s, t in zip(starts, texts)]}
+
+
+@patch("script_writer._ask_claude")
+def test_write_clip_script_reasks_once_then_rejects(ask):
+    bad = _clip_script(["첫 장면", "끝"], [0, 99])
+    ask.return_value = bad
+
+    with pytest.raises(ScriptRejected, match="범위"):
+        write_clip_script(_settings(), {"productName": "케이스"}, [(0.0, JPEG)], 10.0, STYLE)
+    assert ask.call_count == 2
+    assert "직전 대본이 아래 검사에 걸렸다" in ask.call_args.args[1][-1]["text"]
+
+
+def test_check_clip_script_flags_price_and_length():
+    good = _clip_script(["이거 모르면 계속 고생"] + ["손잡이를 *돌리면* 뚜껑이 딱 잠겨요"] * 9)
+    assert script_writer.check_clip_script(good, 60.0) == []
+
+    priced = _clip_script(["이거 모르면 계속 고생"] + ["단돈 9,900원에 뚜껑이 딱 잠겨요"] * 9)
+    assert any("가격" in p for p in script_writer.check_clip_script(priced, 60.0))
+    assert any("장면 2개" in p for p in script_writer.check_clip_script(_clip_script(["a", "b"]), 60.0))
 
 
 def test_ask_claude_uses_sonnet_with_json_schema():

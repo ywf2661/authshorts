@@ -6,6 +6,7 @@
 """
 import json
 import os
+import random
 import sys
 import traceback
 
@@ -14,7 +15,7 @@ import requests
 from config import Settings, load_settings
 from description_builder import build_description, hashtags
 from main import AD_PREFIX, TAIL, parse_product_line
-from script_writer import write_clip_script
+from script_writer import CLIP_HOOK_RULES, CLIP_ORDERS, write_clip_script
 from tts import synthesize, timeline
 from video_assembler import (
     BGM_DIR, ad_events, bgm_credit, caption_events, clean_text, extract_frames, pick_bgm,
@@ -24,12 +25,18 @@ from youtube_api import refresh_access_token, upload_video
 
 WORK_DIR = "work"
 MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024  # 텔레그램 봇 getFile 한도
+# 사용 영상 화면 배치: 상품은 세로 25~60%에 찍히므로 훅은 그 위, 자막은 그 아래(하단 1/3 UI 영역 전).
+CLIP_HOOK_Y, CLIP_CAPTION_Y = 540, 1230  # 훅 2줄이 수수료 문장(y=302) 아래로 오는 최소 높이 (실측)
+HOOK_MIN = 2.5  # 훅 문구는 최소 2.5초 유지
+CLIP_BGM_VOLUME = 0.1  # 약 -20dB — 원래 소리(ASMR)를 가리지 않게
 
 HELP_TEXT = (
     "쿠팡템 사용 영상을 보내주세요 (목소리 없이 찍은 영상).\n"
     "캡션에 '상품명 | 쿠팡 파트너스 링크'를 꼭 적어주세요.\n"
     "예) 몬스터겔 투명 케이스 | https://link.coupang.com/a/xxxx\n"
-    "※ '파일'이 아니라 일반 동영상으로 보내야 20MB 안으로 압축돼요."
+    "※ '파일'이 아니라 일반 동영상으로 보내야 20MB 안으로 압축돼요.\n"
+    "촬영: 세로로, 손만 나오게, 결과 장면부터 (한 샷 3~5초, 총 40~60초).\n"
+    "상품은 화면 가운데~위쪽에, 아래쪽 1/3은 비워 주세요."
 )
 
 
@@ -68,11 +75,11 @@ def _download(settings: Settings, file_id: str, dest: str) -> str:
 
 
 def _preview_caption(
-    title: str, product: dict, summary: str, bgm_name: str = "", tags: list[str] = ()
+    title: str, product: dict, summary: str, bgm_name: str = "", tags: list[str] = (), style: str = ""
 ) -> str:
     caption = (
         f"제목: {title}\n상품: {product['productName']} | {product['productUrl']}\n"
-        f"태그: {' '.join(tags)}\n음악: {bgm_name}\n요약: {summary}"
+        f"태그: {' '.join(tags)}\n음악: {bgm_name}\n연출: {style}\n요약: {summary}"
     )
     return caption[:1024]  # 텔레그램 캡션 최대 길이
 
@@ -105,7 +112,9 @@ def _make_preview(settings: Settings, chat_id, video: dict, product: dict) -> No
     for t, path in extract_frames(source, os.path.join(work_dir, "frames")):
         with open(path, "rb") as f:
             frames.append((t, f.read()))
-    script = write_clip_script(settings, product, frames, duration)
+    # 영상마다 훅·구성을 바꿔 대량 생산 인상을 피한다. 연출은 캡션에 남겨 나중에 성과와 비교.
+    style = {"hook": random.choice(list(CLIP_HOOK_RULES)), "order": random.choice(list(CLIP_ORDERS))}
+    script = write_clip_script(settings, product, frames, duration, style)
     segments = script["segments"]
 
     texts = [clean_text(seg["text"]) for seg in segments]
@@ -118,14 +127,16 @@ def _make_preview(settings: Settings, chat_id, video: dict, product: dict) -> No
               for seg, t in zip(segments, timings)]
     # 첫 장면은 큰 훅 문구만, 나머지 장면은 팝 자막.
     hook = script["hook_lines"]
-    events = title_events(hook, 0, timings[0]["end"]) if hook else []
+    hook_end = min(total, max(timings[0]["end"], HOOK_MIN))
+    events = title_events(hook, 0, hook_end, CLIP_HOOK_Y) if hook else []
     for seg, t in list(zip(segments, timings))[1 if hook else 0:]:
-        events += caption_events(seg["text"], t["words"], t["start"], t["end"])
+        events += caption_events(seg["text"], t["words"], t["start"], t["end"], CLIP_CAPTION_Y)
     events += ad_events(total)
     bgm = pick_bgm()
     final = render(
         scenes, narration, write_ass(events, os.path.join(work_dir, "subs.ass")),
         os.path.join(work_dir, "final.mp4"), bgm_path=bgm[0] if bgm else None,
+        bgm_volume=CLIP_BGM_VOLUME,
     )
     bgm_name = os.path.splitext(os.path.basename(bgm[0]))[0] if bgm else ""
 
@@ -140,7 +151,8 @@ def _make_preview(settings: Settings, chat_id, video: dict, product: dict) -> No
             files={"video": f},
             chat_id=chat_id,
             caption=_preview_caption(
-                script["title"], product, summary, bgm_name, hashtags(script.get("keywords", []))
+                script["title"], product, summary, bgm_name, hashtags(script.get("keywords", [])),
+                f"{style['hook']}/{style['order']}",
             ),
             reply_markup=json.dumps(keyboard),
             supports_streaming="true",
