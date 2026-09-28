@@ -2,8 +2,9 @@ name: ai-shortsbot
 
 on:
   schedule:
-    - cron: "0 10 * * 1-5"  # 평일 KST 19:00
-    - cron: "0 2 * * 0,6"   # 주말 KST 11:00
+    # 주 2회로 줄임 — 사진 슬라이드는 YouTube '진정성 없는 콘텐츠' 예시에 가까워 채널 주력은 직접 찍은 영상(usage_bot)
+    - cron: "0 10 * * 3"  # 수요일 KST 19:00
+    - cron: "0 2 * * 6"   # 토요일 KST 11:00
   workflow_dispatch: {}
 
 permissions:
